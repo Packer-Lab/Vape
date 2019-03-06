@@ -5,7 +5,26 @@ import os
 from lxml import objectify
 from lxml import etree
 
+def dfof(arr):
 
+    '''takes 1d list or array or 2d array and returns dfof array of same dim (JR 2019)'''
+       
+    if type(arr) is list or type(arr) == np.ndarray and len(arr.shape) == 1:
+        F = np.mean(arr)
+        dfof_arr = [f- F for f in arr]
+        
+    elif type(arr) == np.ndarray and len(arr.shape) == 2:
+        
+        dfof_arr = []
+        for trace in arr:
+            F = np.mean(trace)
+            dfof_arr.append([(f - F) / F for f in trace])
+            
+    else:
+        raise NotImplementedError('input type not recognised')
+        
+    return np.array(dfof_arr)
+       
 
 def get_tiffs(path):
     
@@ -15,10 +34,62 @@ def get_tiffs(path):
             tiff_files.append(os.path.join(path,file))
                    
     return tiff_files
+    
+    
+def s2p_loader(s2p_path, subtract_neuropil=True):
+
+    for root,dirs,files in os.walk(s2p_path):
+
+        for file in files:
+
+            if file == 'F.npy':
+                all_cells = np.load(os.path.join(root, file))
+            elif file == 'Fneu.npy':
+                neuropil = np.load(os.path.join(root, file))
+            elif file == 'iscell.npy':
+                is_cells = np.load(os.path.join(root, file))[:,0]
+                is_cells = np.ndarray.astype(is_cells, 'bool')                    
+
+    if not subtract_neuropil:
+        return all_cells[is_cells, :]
+    
+    else:
+        neuropil_corrected = all_cells - neuropil
+        return neuropil_corrected[is_cells, :]
+        
+        
+def digitise_trigger(volts, trig_gradient=0.1, min_time=0, max_time=np.Inf):
+    
+    '''
+    inputs 
+    
+    volts:         analogue voltage trace containing triggers
+    trig_gradient: +ve voltage gradient requried to register trigger (0.1 V works well with packio triggers)
+    min_time:      two triggers should not occur within the time frame
+    max_time:      max time gap expected between two triggers (set None if not sure)
+     
+    returns:       trigger times in samples
+    
+    '''   
+    # sample indexes of a rising voltage
+    # should not be more than a 0.1 V change when there is no trigger.
+    samples =  np.where(np.diff(volts) > 0.1)[0]
+
+    # time difference between voltage upstrokes
+    upstroke_diff = np.diff(samples)
+
+    # time difference between all triggers should be greater than min_time but less than max_time
+    filter_idx = np.where((upstroke_diff > min_time) & (upstroke_diff < max_time))[0]
+
+    #hack to get the last trigger, this would break if there are > 1 0.1V diff voltages recorded on
+    #penultimate trigger, this is unlikely, though change in future
+    filter_idx = np.append(filter_idx, filter_idx[-1] + 1)
+
+    return samples[filter_idx]
+
 
  
-def interpolate_through_stim(stack=None, db=None, threshold=1.5):
-    
+def interpolate_through_stim(stack=None, db=None, threshold=1.5): 
     '''  
     remove frames with mean pixel intensity higher than 
     threhold x average across time series
@@ -27,10 +98,7 @@ def interpolate_through_stim(stack=None, db=None, threshold=1.5):
     takes input of stack OR db
     
     if stack: returns artifact cleaned stack array
-    if db: returns db dict with path now to cleaned tiff
-         
-    (JR 2019) 
-     
+    if db: returns db dict with path now to cleaned tiff (JR 2019) 
     '''
 
     if not stack and not db: raise ValueError('must pass function stack or db')
@@ -45,7 +113,6 @@ def interpolate_through_stim(stack=None, db=None, threshold=1.5):
 
     dims = stack.shape
     n_frames = dims[0]
-    
     av_frame = np.mean(stack, axis=(1,2))
     
     # Frames with averge fluoresence threshold * higher than average
@@ -61,18 +128,13 @@ def interpolate_through_stim(stack=None, db=None, threshold=1.5):
     #perform pixel wise linear interpolation across blanked frames
     for row in range(dims[1]):
         for col in range(dims[2]):
-
             px = blanked[:,row,col]
-
             intp = np.interp(to_remove, xt, px)
-
             stack[to_remove,row,col] = intp
-            
+           
     assert stack.shape == dims
-
     
-    if db:
-    
+    if db:    
         #update db path
         ar_path = os.path.join(os.path.dirname(tiff_file), 'artifactRemoved')            
         db['data_path'] = [ar_path]   
@@ -87,106 +149,6 @@ def interpolate_through_stim(stack=None, db=None, threshold=1.5):
     
     else:
         return stack
-
-        
-        
-class ParseMarkpoints():  
-    
-    '''
-    parses gpls or xmls from markpoints into python variables
-    copied from Blimp (JR 2019)
-    
-    '''
-
-    def __init__(self, xml_path=None, gpl_path=None):
-        
-        #super(ParseMarkpoints, self).__init__()
-        
-        self.xml_path = xml_path
-        self.gpl_path = gpl_path
-        
-        if self.gpl_path:            
-            self.parse_gpl()
-            
-        if self.xml_path:
-            self.parse_xml()
-
-       
-        
-    def parse_gpl(self):
-        
-        '''extract information from naparm gpl file'''
-        
-        gpl = etree.parse(self.gpl_path)
-
-        self.Xs = []
-        self.Ys = []
-        self.is_spirals = []
-        self.spiral_sizes = []
-
-        for elem in gpl.iter():
-
-            if elem.tag == 'PVGalvoPoint':
-                self.Xs.append(elem.attrib['X'])
-                self.Ys.append(elem.attrib['Y'])
-                self.is_spirals.append(elem.attrib['IsSpiral'])
-                #the spiral size gpl attrib contains a positive and negative number for 
-                #some reason. This takes just the positive, may cause errors later
-                self.spiral_sizes.append(elem.attrib['SpiralSize'].split(' ')[0])
-                
-            
-    def parse_xml(self):
-
-        '''extract requried information from xml into python lists'''
-
-        xml = etree.parse(self.xml_path)
-
-        self.laser_powers = []
-        self.spiral_revolutions = []
-        self.durations = []
-        self.initial_delays = []
-        self.repetitions = []
-        
-        for elem in xml.iter():
-
-            if elem.tag == 'PVSavedMarkPointSeriesElements':
-                self.iterations = elem.attrib['Iterations']
-            
-            if elem.tag == 'PVMarkPointElement':
-                self.laser_powers.append(elem.attrib['UncagingLaserPower'])
-                self.repetitions.append(elem.attrib['Repetitions'])
-                
-            elif elem.tag == 'PVGalvoPointElement':
-                self.durations.append(elem.attrib['Duration'])
-                self.spiral_revolutions.append(elem.attrib['SpiralRevolutions'])
-                self.initial_delays.append(elem.attrib['InitialDelay'])
-                
-               
-        #detect if a dummy point has been sent and remove it if so
-        if self.laser_powers[0] == '0':
-            self.dummy = True
-            self.laser_powers.pop(0)
-            self.spiral_revolutions.pop(0)
-            self.durations.pop(0)
-            self.initial_delays.pop(0)
-            self.repetitions.pop(0)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
