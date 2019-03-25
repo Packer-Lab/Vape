@@ -2,8 +2,9 @@ import numpy as np
 
 
 ops = {
-        'fast_disk': '', # used to store temporary binary file, defaults to save_path0 (set as a string NOT a list)
-        'save_path0': '', # stores results, defaults to first item in data_path
+        'batch_size': 200, # reduce if running out of RAM
+        'fast_disk': '/home/jamesrowland/Documents/suite2p_binaries', # used to store temporary binary file, defaults to save_path0 (set as a string NOT a list)
+        #'save_path0': '/media/jamesrowland/DATA/plab/suite_2p', # stores results, defaults to first item in data_path
         'delete_bin': False, # whether to delete binary file after processing
         # main settings
         'nplanes' : 1, # each tiff has these many planes in sequence
@@ -13,7 +14,7 @@ ops = {
         'tau':  1.26, # this is the main parameter for deconvolution
         'fs': 30.,  # sampling rate (total across planes)
         # output settings
-        'save_mat': False, # whether to save output as matlab files
+        'save_mat': True, # whether to save output as matlab files
         'combined': True, # combine multiple planes into a single result /single canvas for GUI
         # parallel settings
         'num_workers': 0, # 0 to select num_cores, -1 to disable parallelism, N to enforce value
@@ -21,7 +22,6 @@ ops = {
         # registration settings
         'do_registration': True, # whether to register data
         'nimg_init': 200, # subsampled frames for finding reference image
-        'batch_size': 200, # number of frames per batch
         'maxregshift': 0.1, # max allowed registration shift, as a fraction of frame max(width and height)
         'align_by_chan' : 1, # when multi-channel, you can align by non-functional channel (1-based)
         'reg_tif': False, # whether to save registered tiffs
