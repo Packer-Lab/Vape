@@ -19,6 +19,7 @@ def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
 
     """
     creds = None
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
@@ -97,3 +98,65 @@ def gsheet2df(SPREADSHEET_ID, HEADER_ROW, SHEET_NAME='Sheet1'):
     df = pd.concat(all_data, axis=1)
     
     return df
+    
+
+def correct_behaviour_df(df):
+    
+    '''
+    inputs the Optimstim Behaviour Metadata
+    corrects blank rows that have been merged in gsheets and converts
+    lists of t series names from newlines to python lists
+    
+    '''
+    #fix blank merged rows
+    for row,val in enumerate(df['Date']):
+
+        if val: continue
+
+        for col in df.columns.values[0:4]:
+
+            df.loc[row,col] = df.loc[row-1,col]
+            
+    
+    # fix newline lists
+    for column_header in [t_series_header, 'Number of frames']:
+        for row, val in enumerate(df[column_header]):
+        
+            if '\n' in val:
+                t_list = val.split('\n')  
+
+                #get rid of blank strings
+                t_list = [t for t in t_list if t]
+                
+                df[column_header][row] = t_list
+                
+                
+    return df      
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

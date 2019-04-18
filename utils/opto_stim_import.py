@@ -14,14 +14,14 @@ class opto_stim_import():
         path - path to the behavioural txt files, must point to directory of date folders containing txt files 
         date - the date of interest must be in same format as folders in path
         task_str - allows user to specify a string if there is more than 1 txt file for a single mouse on 1 day
-        
+
         '''
         self.ID = ID
         self.path = path
         self.date = date
         self.date_path = os.path.join(path,date)
         self.task_str = task_str
-        
+
         self.get_files()
         
         #use data_import to build session do not add this to object 
@@ -38,7 +38,7 @@ class opto_stim_import():
 
         
         self.get_current()
-
+        
         self.get_licks()
         
         self.dprime()
@@ -255,8 +255,11 @@ class merge_sessions():
         except:
             raise ValueError('mouse not present in behavioural LUT')
         
-    def merge(self):  
+    def merge(self):
+  
         '''merge task info from seperate session into a single list probably a neater way of doing this'''
+
+
         self.outcome = []
         self.online_dprime = []
         self.binned_licks = [] 
