@@ -8,22 +8,22 @@ from utils.data_import import Session
 from utils.utils_funcs import d_prime as pade_dprime
 from utils.gsheets_importer import gsheet2df, correct_behaviour_df
 
-class OptoStimTxt():
+class OptoStimBasic():
 
     def __init__(self, txt_path):
         '''
-        proceses individual opto_stim pycontrol txt file
+        proceses information from individual pycontrol txt file
+        relevant to all opto_stim task flavours
         '''
 
-        self._session = Session(txt_path)
-        self._print_lines = self._session.print_lines
+        self.session = Session(txt_path)
+        self.print_lines = self.session.print_lines
 
         self._outcome_lists()
 
-
     def _pl_times(self, str_):
         '''returns the time of all print lines with str_ in the line'''
-        return [float(line.split(' ')[0]) for line in self._print_lines if str_ in line]
+        return [float(line.split(' ')[0]) for line in self.print_lines if str_ in line]
 
     def _appender(self, str_, outcome):
         '''appends trial outcomes and their times to lists'''
@@ -50,7 +50,9 @@ class OptoStimTxt():
         self.trial_time = np.array(self.trial_time)[sort_idx]
         self.outcome = np.array(self.outcome)[sort_idx]
 
-        self.trial_time, self.outcome = OptoStimTxt._debounce(self.trial_time, self.outcome, 2000)
+        self.trial_time, self.outcome = OptoStimBasic._debounce(self.trial_time, self.outcome, 2000)
+        self.trial_time = self.test_import_and_slice(self.trial_time)
+        self.outcome = self.test_import_and_slice(self.outcome)
 
     @classmethod
     def _debounce(cls, arr1, arr2, window):
@@ -64,19 +66,25 @@ class OptoStimTxt():
 
             diff = arr1[i+1] - arr1[i]
             if diff <= window:
-                del arr1[i+1]
-                del arr2[i+1]
+                arr1 = np.delete(arr1, i+1)
+                arr2 = np.delete(arr2, i+1)
                 # recursively call debounce function
-                self.debounce(arr1,arr2, window)
+                OptoStimBasic._debounce(arr1,arr2, window)
+
+    @property
+    def n_trials_complete(self):
+        return len(self.session.times.get('ITI'))
 
     @property
     def trial_type(self):
-        return ['go' if t == 'miss' or t == 'hit' else 'nogo' for t in self.outcome]
+        trial_type = ['go' if t == 'miss' or t == 'hit' else 'nogo' for t in self.outcome]
+        return self.test_import_and_slice(trial_type)
 
     @property
     def trial_start(self):
         ''' the time that the trial started scope and normal task print different strings at trial start '''
-        return [float(line.split(' ')[0]) for line in self._print_lines if 'goTrial' in line or 'nogo_trial' in line or 'Start SLM trial' in line or 'Start NOGO trial' in line]
+        trial_start = [float(line.split(' ')[0]) for line in self.print_lines if 'goTrial' in line or 'nogo_trial' in line or 'Start SLM trial' in line or 'Start NOGO trial' in line]
+        return self.test_import_and_slice(trial_start)
 
     @property
     def online_dprime(self):
@@ -85,7 +93,7 @@ class OptoStimTxt():
     @property
     def binned_licks(self):
         ''' gets the lick times normalised to the start of each trial '''
-        licks = self._session.times.get('lick_1')
+        licks = self.session.times.get('lick_1')
 
         binned_licks = []
         for i, t_start in enumerate(self.trial_start):
@@ -102,7 +110,9 @@ class OptoStimTxt():
 
             binned_licks.append(trial_licks)
 
-        return binned_licks
+        return self.test_import_and_slice(binned_licks)
+
+
 
     @property
     def hit_rate(self):
@@ -120,6 +130,43 @@ class OptoStimTxt():
     def dprime(self):
         #use matthias approximation
         return pade_dprime(self.hit_rate, self.fp_rate)
+
+    def test_import_and_slice(self, list_):
+        '''
+        test that import has been done correctly and slice to remove end trial if IndexError in task
+        tests that list_if of correct length and slices to only include full trial_start
+        args = list to test for correct length and slice
+        '''
+
+        len_test = lambda x : True if self.n_trials_complete <= x <= self.n_trials_complete + 1 else False
+
+        assert len_test(len(list_)) 'error importing, list of wrong length'
+
+        return list_[0:self.n_trials_complete]
+
+
+
+class OptoStim1p(OptoStimBasic):
+
+        '''init this class to process the 1p opto_stim txt file in txt_path'''
+        def __init__(self, txt_path):
+
+            super().__init__(txt_path)
+
+            #self.test_import_and_slice()
+
+        @property
+        def LED_current(self):
+            '''gets the LED current on each trial'''
+
+            if self.session.task_name == 'opto_stim':
+                return [float(line.split(' ')[4]) for line in self.print_lines if 'LED current is' in line and 'now' not in line]
+            elif self.session.task_name == 'opto_stim_psychometric':
+                return [float(line.split(' ')[3]) for line in self.print_lines if 'LED_current is' in line]
+            else:
+                raise ValueError('task not recognised')
+
+
 
 
 
