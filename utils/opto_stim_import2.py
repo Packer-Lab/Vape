@@ -21,13 +21,13 @@ class OptoStimBasic():
 
         self._outcome_lists()
 
-    def _pl_times(self, str_):
+    def pl_times(self, str_):
         '''returns the time of all print lines with str_ in the line'''
         return [float(line.split(' ')[0]) for line in self.print_lines if str_ in line]
 
     def _appender(self, str_, outcome):
         '''appends trial outcomes and their times to lists'''
-        times = self._pl_times(str_)
+        times = self.pl_times(str_)
         if times:
             self.trial_time.append(times)
             self.outcome.append([outcome]*len(times))
@@ -140,31 +140,73 @@ class OptoStimBasic():
 
         len_test = lambda x : True if self.n_trials_complete <= x <= self.n_trials_complete + 1 else False
 
-        assert len_test(len(list_)) 'error importing, list of wrong length'
+        assert len_test(len(list_)), 'error importing, list of wrong length'
 
         return list_[0:self.n_trials_complete]
 
 
 
 class OptoStim1p(OptoStimBasic):
-
-        '''init this class to process the 1p opto_stim txt file in txt_path'''
         def __init__(self, txt_path):
 
-            super().__init__(txt_path)
+            '''init this class to process the 1p opto_stim txt file in txt_path'''
 
-            #self.test_import_and_slice()
+            super().__init__(txt_path)
+            self.autoreward()
+
 
         @property
         def LED_current(self):
             '''gets the LED current on each trial'''
 
             if self.session.task_name == 'opto_stim':
-                return [float(line.split(' ')[4]) for line in self.print_lines if 'LED current is' in line and 'now' not in line]
+                LED_current = [float(line.split(' ')[4]) for line in self.print_lines if 'LED current is' in line and 'now' not in line]
             elif self.session.task_name == 'opto_stim_psychometric':
-                return [float(line.split(' ')[3]) for line in self.print_lines if 'LED_current is' in line]
+                LED_current =  [float(line.split(' ')[3]) for line in self.print_lines if 'LED_current is' in line]
             else:
                 raise ValueError('task not recognised')
+
+            return self.test_import_and_slice(LED_current)
+
+        def autoreward(self):
+            '''detect if pycontrol went into autoreward state '''
+
+            autoreward_times = self.session.times.get('auto_reward')
+
+            self.autorewarded_trial = []
+            for i,t_start in enumerate(self.trial_time):
+                #arbitrary big number to prevent index error on last trial
+                if i == self.n_trials_complete-1: t_end = 10e100
+                else: t_end = self.trial_time[i+1]
+
+                is_autoreward = next((a for a in autoreward_times if a >= t_start and a < t_end), False)
+                if is_autoreward: self.autorewarded_trial.append(True)
+                else: self.autorewarded_trial.append(False)
+
+            ## did mouse get out of autreward phase?
+            time_autoswitch = self.pl_times('switching out of auto')[0]
+
+            ## find the trial number this happened by finding the index of the closest trial start time (+1)
+            if time_autoswitch:
+                self.trial_autoswitch = np.abs(self.trial_time - time_autoswitch).argmin() + 1
+            else:
+                self.trial_autoswitch = None
+
+
+class OptoStim2p(OptoStimBasic):
+    def __init__(self, txt_path):
+        '''init this class to process the 2p opto_stim txt file in txt_path'''
+
+        super().__init__(txt_path)
+
+
+        
+
+
+
+
+
+
 
 
 
