@@ -7,6 +7,7 @@ import numpy as np
 from datetime import datetime, date
 from collections import namedtuple
 
+
 Event = namedtuple('Event', ['time','name'])
 
 #----------------------------------------------------------------------------------

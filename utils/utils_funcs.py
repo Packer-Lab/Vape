@@ -5,41 +5,42 @@ import os
 import csv
 from lxml import objectify
 from lxml import etree
+import math
 
 
 
-   
+
 def dfof(arr):
 
     '''takes 1d list or array or 2d array and returns dfof array of same dim (JR 2019)'''
-       
+
     if type(arr) is list or type(arr) == np.ndarray and len(arr.shape) == 1:
         F = np.mean(arr)
         dfof_arr = [((f- F) / F) * 100 for f in arr]
-        
+
     elif type(arr) == np.ndarray and len(arr.shape) == 2:
         dfof_arr = []
         for trace in arr:
             F = np.mean(trace)
             dfof_arr.append([((f - F) / F) * 100 for f in trace])
-            
+
     else:
         raise NotImplementedError('input type not recognised')
-        
+
     return np.array(dfof_arr)
-    
-       
+
+
 
 def get_tiffs(path):
-    
+
     tiff_files = []
     for file in os.listdir(path):
         if file.endswith('.tif') or file.endswith('.tiff'):
             tiff_files.append(os.path.join(path,file))
-                   
+
     return tiff_files
-    
-    
+
+
 def s2p_loader(s2p_path, subtract_neuropil=True):
 
     for root,dirs,files in os.walk(s2p_path):
@@ -52,31 +53,31 @@ def s2p_loader(s2p_path, subtract_neuropil=True):
                 neuropil = np.load(os.path.join(root, file))
             elif file == 'iscell.npy':
                 is_cells = np.load(os.path.join(root, file))[:,0]
-                is_cells = np.ndarray.astype(is_cells, 'bool')   
+                is_cells = np.ndarray.astype(is_cells, 'bool')
             elif file == 'stat.npy':
                 stat = np.load(os.path.join(root, file))
-                                
+
 
     for i,s in enumerate(stat):
         s['original_index'] = i
-        
-    stat = stat[is_cells] 
+
+    stat = stat[is_cells]
 
     if not subtract_neuropil:
         return all_cells[is_cells, :], stat
-    
+
     else:
         neuropil_corrected = all_cells - neuropil
         return neuropil_corrected[is_cells, :], stat
-        
-        
-        
+
+
+
 def read_fiji(csv_path):
 
     '''reads the csv file saved through plot z axis profile in fiji'''
-    
+
     data = []
-    
+
     with open(csv_path, 'r') as csvfile:
         spamreader = csv.reader(csvfile, delimiter=' ', quotechar='|')
         for i,row in enumerate(spamreader):
@@ -85,11 +86,11 @@ def read_fiji(csv_path):
 
     return np.array(data)
 
-    
+
 def save_fiji(arr):
     '''saves numpy array in current folder as fiji friendly tiff'''
     tf.imsave('Vape_array.tiff', arr.astype('int16'))
-    
+
 def threshold_detect(signal, threshold):
     '''lloyd russell'''
     thresh_signal = signal > threshold
@@ -105,14 +106,3 @@ def pade_approx_norminv(p):
 
 def d_prime(hit_rate, false_alarm_rate):
     return pade_approx_norminv(hit_rate) - pade_approx_norminv(false_alarm_rate)
-    
-    
-
-
-
-        
-
-
-
-
-
