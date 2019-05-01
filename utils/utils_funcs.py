@@ -91,6 +91,7 @@ def save_fiji(arr):
     '''saves numpy array in current folder as fiji friendly tiff'''
     tf.imsave('Vape_array.tiff', arr.astype('int16'))
 
+
 def threshold_detect(signal, threshold):
     '''lloyd russell'''
     thresh_signal = signal > threshold
@@ -106,3 +107,36 @@ def pade_approx_norminv(p):
 
 def d_prime(hit_rate, false_alarm_rate):
     return pade_approx_norminv(hit_rate) - pade_approx_norminv(false_alarm_rate)
+
+
+def paq_data(paq, chan_name, threshold_ttl=False):
+    '''
+    returns the data in paq (from paq_read) from channel: chan_names
+    if threshold_tll: returns sample that trigger occured on
+    '''
+
+    chan_idx = paq['chan_names'].index(chan_name)
+    data = paq['data'][chan_idx, :]
+    if threshold_ttl:
+        return threshold_detect(data,1)
+    else:
+        return data
+
+
+def stim_start_frame(paq, stim_chan_name):
+
+    '''gets the frames (from channel frame_clock) that a stim occured on'''
+
+    frame_clock = paq_data(paq, 'frame_clock', threshold_ttl=True)
+    stim_times  = paq_data(paq, stim_chan_name, threshold_ttl=True)
+
+    stim_times = [stim for stim in stim_times if stim < max(frame_clock)]
+
+    frames = []
+
+    for stim in stim_times:
+        #the sample time of the frame immediately preceeding stim
+        frame = next(frame_clock[i-1] for i,sample in enumerate(frame_clock) if sample - stim > 0)
+        frames.append(frame)
+
+    return(frames)
