@@ -63,7 +63,7 @@ def process_frame(frame, frame_bin, width_thresh=10):
         width = (width_rows if width_rows<width_cols else width_cols)
 
         # the width of the labelled region is thin or it is very asymmetrical
-        if width < width_thresh or props['major_axis_length'] / props['minor_axis_length'] > 2:
+        if width < width_thresh:
 
             frame[rows, cols] = 0
 

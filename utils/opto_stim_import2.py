@@ -176,6 +176,7 @@ class OptoStim1p(OptoStimBasic):
             self.autorewarded_trial = []
             for i,t_start in enumerate(self.trial_time):
                 #arbitrary big number to prevent index error on last trial
+
                 if i == self.n_trials_complete-1: t_end = 10e100
                 else: t_end = self.trial_time[i+1]
 
@@ -194,13 +195,32 @@ class OptoStim1p(OptoStimBasic):
 
 
 class OptoStim2p(OptoStimBasic):
+
     def __init__(self, txt_path):
         '''init this class to process the 2p opto_stim txt file in txt_path'''
 
         super().__init__(txt_path)
 
+        self._SLM_trials()
 
-        
+
+    def _SLM_trials(self):
+        #the line that triggers an SLM trial throuh blimp
+         _trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial Number' in line]
+
+         self.barcode = [float(line.split(' ')[7]) for line in _trigger_lines]
+         self.SLM_trial_number = [float(line.split(' ')[5]) for line in _trigger_lines]
+
+
+
+
+
+
+
+
+
+
+
 
 
 
