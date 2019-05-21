@@ -1,5 +1,6 @@
 # Python classes for importing pyControl data files and representing pyControl
 # sessions and experiments.  Dependencies: Python 3.5+, Numpy.
+# (c) Thomas Akam 2018. Released under the GPL-3 open source licence.
 
 import os
 import pickle

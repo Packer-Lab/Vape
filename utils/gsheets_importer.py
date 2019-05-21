@@ -113,10 +113,12 @@ def correct_behaviour_df(df, t_series_header='t-series name'):
 
         if val: continue
 
-        for col in df.columns.values[0:4]:
+        if df.loc[row]['Run Number']:
+            for col in df.columns.values[0:4]:
+                df.loc[row,col] = df.loc[row-1,col]
 
-            df.loc[row,col] = df.loc[row-1,col]
-
+        else:
+            df = df.drop(row, axis=0)
 
     # fix newline lists
     for column_header in [t_series_header, 'Number of frames']:
@@ -130,5 +132,63 @@ def correct_behaviour_df(df, t_series_header='t-series name'):
 
                 df[column_header][row] = t_list
 
-
     return df
+
+
+def path_finder(umbrella, *args,  is_folder=False):
+
+    '''
+    returns the path to the single item in the umbrella folder
+    containing the string names in each arg
+    is_folder = False if args is list of files
+    is_folder = True if  args is list of folders
+    '''
+    #list of bools, has the function found each argument?
+    #ensures two folders / files are not found
+    found = [False] * len(args)
+    #the paths to the args
+    paths = [None] * len(args)
+
+    if is_folder:
+        for root, dirs, files in os.walk(umbrella):
+            for folder in dirs:
+                for i,arg in enumerate(args):
+                    if arg in folder:
+                        assert not found[i]
+                        paths[i] = os.path.join(root, folder)
+                        found[i] = True
+
+    elif not is_folder:
+        for root, dirs, files in os.walk(umbrella):
+            for file in files:
+                for i,arg in enumerate(args):
+                    if arg in file:
+                        assert not found[i]
+                        paths[i] = os.path.join(root, file)
+                        found[i] = True
+
+    for i,arg in enumerate(args):
+        if not found[i]:
+            raise ValueError('could not find path to {}'.format(arg))
+
+    return paths
+
+
+#### slicing / indexing functions #####
+def split_df(self, col_id):
+    '''slice whole dataframe by boolean value of col_id'''
+    idx = self.df.index[self.df[col_id]=='TRUE']
+    return self.df.loc[idx, :]
+
+def df_bool(df, col_id):
+    '''returns the rows of a pandas dataframe where col_id is TRUE'''
+    return df.index[df[col_id]=='TRUE']
+
+def df_col(df, col, idx='all'):
+
+    '''returns the values in col in rows specified in idx'''
+
+    if idx=='all':
+        idx = range(len(df))
+
+    return [df.loc[idx,col] for idx in idx]

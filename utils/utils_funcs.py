@@ -2,13 +2,22 @@ import numpy as np
 import tifffile as tf
 import ntpath
 import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 import csv
 from lxml import objectify
 from lxml import etree
 import math
 
-
-
+#global plotting params
+params = {'legend.fontsize': 'x-large',
+         'axes.labelsize': 'x-large',
+         'axes.titlesize':'x-large',
+         'xtick.labelsize':'x-large',
+         'ytick.labelsize':'x-large'}
+plt.rcParams.update(params)
+sns.set()
+sns.set_style('white')
 
 def dfof(arr):
 
@@ -28,7 +37,6 @@ def dfof(arr):
         raise NotImplementedError('input type not recognised')
 
     return np.array(dfof_arr)
-
 
 
 def get_tiffs(path):
@@ -109,7 +117,7 @@ def d_prime(hit_rate, false_alarm_rate):
     return pade_approx_norminv(hit_rate) - pade_approx_norminv(false_alarm_rate)
 
 
-def paq_data(paq, chan_name, threshold_ttl=False):
+def paq_data(paq, chan_name, threshold_ttl=False, plot=False):
     '''
     returns the data in paq (from paq_read) from channel: chan_names
     if threshold_tll: returns sample that trigger occured on
@@ -118,9 +126,17 @@ def paq_data(paq, chan_name, threshold_ttl=False):
     chan_idx = paq['chan_names'].index(chan_name)
     data = paq['data'][chan_idx, :]
     if threshold_ttl:
-        return threshold_detect(data,1)
-    else:
-        return data
+        data = threshold_detect(data, 1)
+
+    if plot:
+        if threshold_ttl:
+            plt.plot(data, np.ones(len(data)), '.')
+        else:
+            plt.plot(data)
+
+    return data
+
+
 
 
 def stim_start_frame(paq, stim_chan_name):

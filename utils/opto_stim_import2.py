@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import numpy as np
 import glob
 import os
@@ -5,8 +8,13 @@ import csv
 import sys
 sys.path.append('..')
 from utils.data_import import Session
+#change this
+from utils.utils_funcs import paq_data
 from utils.utils_funcs import d_prime as pade_dprime
-from utils.gsheets_importer import gsheet2df, correct_behaviour_df
+import utils.gsheets_importer as gsheet
+from utils.paq2py import paq_read
+from utils.rsync_aligner import Rsync_aligner
+
 
 class OptoStimBasic():
 
@@ -82,9 +90,16 @@ class OptoStimBasic():
 
     @property
     def trial_start(self):
-        ''' the time that the trial started scope and normal task print different strings at trial start '''
-        trial_start = [float(line.split(' ')[0]) for line in self.print_lines if 'goTrial' in line or 'nogo_trial' in line or 'Start SLM trial' in line or 'Start NOGO trial' in line]
+        go_start = self.session.times.get('detect_lick_go')
+        nogo_start = self.session.times.get('detect_lick_nogo')
+        trial_start = np.sort(np.hstack((go_start, nogo_start)))
+
         return self.test_import_and_slice(trial_start)
+        #trial_start = np.sort(go_start+nogo_start)
+        #return self.test_import_and_slice(trial_start)
+        #     ''' the time that the trial started scope and normal task print different strings at trial start '''
+        #     trial_start = [float(line.split(' ')[0]) for line in self.print_lines if 'goTrial' in line or 'nogo_trial' in line or 'Trigger SLM trial' in line or 'Start NOGO trial' in line]
+        #     return self.test_import_and_slice(trial_start)
 
     @property
     def online_dprime(self):
@@ -103,10 +118,10 @@ class OptoStimBasic():
             else: t_end = self.trial_start[i+1]
 
             #find the licks occuring in each trial
-            trial_IND = np.where((licks>t_start) & (licks<t_end))[0]
+            trial_idx = np.where((licks>=t_start) & (licks<=t_end))[0]
 
             #normalise to time of trial start
-            trial_licks = licks[trial_IND] - t_start
+            trial_licks = licks[trial_idx] - t_start
 
             binned_licks.append(trial_licks)
 
@@ -195,85 +210,112 @@ class OptoStim1p(OptoStimBasic):
 
 
 class OptoStim2p(OptoStimBasic):
-
     def __init__(self, txt_path):
         '''init this class to process the 2p opto_stim txt file in txt_path'''
 
         super().__init__(txt_path)
 
-        self._SLM_trials()
-
-
-    def _SLM_trials(self):
         #the line that triggers an SLM trial throuh blimp
-         _trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial Number' in line]
+        _trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial Number' in line]
 
-         self.barcode = [float(line.split(' ')[7]) for line in _trigger_lines]
-         self.SLM_trial_number = [float(line.split(' ')[5]) for line in _trigger_lines]
+        self.barcode = [float(line.split(' ')[7]) for line in _trigger_lines]
+        self.SLM_trial_number = [float(line.split(' ')[5]) for line in _trigger_lines]
 
-
-
-
-
+        assert len(self.barcode) == self.trial_type.count('go') == max(self.SLM_trial_number)
+        self.rsync = self.session.times.get('rsync')
 
 
+class BlimpImport(OptoStim2p):
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class OptoStimImport():
-
-    #ID of the Optistim Behaviour gsheet (from the URL)
+    #from the URL
     sheet_ID = '1GG5Y0yCEw_h5dMfHBnBRTh5NXgF6NqC_VVGfSpCHroc'
+    packerstation_path = '/home/jamesrowland/Documents/packerstation/jrowland/Data'
 
-    def __init__(self, ID):
+    #the name of the file path column
+    date_header = 'Date'
+    t_series_header = 't-series name'
+    paq_header = '.paq file'
+    naparm_header = 'Naparm'
+    blimp_header = 'blimp folder'
+    pycontrol_header = 'pycontrol txt'
 
+    #column telling whether to analyse or not
+    analyse_bool_header = 'Analyse'
+
+    def __init__(self, mouse_id):
         '''
-        common class to parse data from all opto_stim behaviour tasks
-        to a pandas dataFrame.
-        Takes the google sheet addesss in sheet_ID and creates a pandas
-        dataframe with metadata and 1p info from task
-
-        Inputs
-        ID: The ID of the mouse, need to match the spreadsheet name
+        class to import 2-photon blimp experiments based on the
+        gsheet given in sheet ID
         '''
+        self.mouse_id = mouse_id
 
-        self.ID = ID
-
-        @property
-        def df(self):
-            self.df = gsheet2df(OptoStimImport.sheet_ID, 2, SHEET_NAME=self.ID)
-            self.df = correct_behaviour_df(self.df)
-
-        def split_df(self, col_id):
-            '''slice dataframe by boolean value of col_id'''
-            idx = self.df.index[self.df[col_id]=='TRUE']
-            return self.df.loc[idx, :]
+        self.parse_spreadsheet()
 
 
-if __name__ == "__main__":
-    #importer = OptoStimImport('RL019')
-    tp = OptoStimTxt('/home/jamesrowland/Documents/packerstation/jrowland/Data/2019-04-19/pycontrol_data/RL019-2019-04-19-190618.txt')
+    @property
+    def df(self):
+        sheet_name = self.mouse_id + '!A1:Z69'
+        df = gsheet.gsheet2df(BlimpImport.sheet_ID, HEADER_ROW=2, SHEET_NAME=sheet_name)
+        #comment this out if not using behaviour spreadsheet
+        df = gsheet.correct_behaviour_df(df)
+        return df
+
+    def parse_spreadsheet(self):
+
+        idx_analyse = gsheet.df_bool(self.df, BlimpImport.analyse_bool_header)
+        idx_2p = gsheet.df_bool(self.df, 'Trained 2P')
+        idx_1p = gsheet.df_bool(self.df, 'Trained 1P')
+
+        intersect = lambda A, B: set(A) - (set(A) - set(B))
+
+        rows_2p = intersect(idx_analyse, idx_2p)
+        rows_1p = intersect(idx_analyse, idx_1p)
+
+        self.dates_2p = gsheet.df_col(self.df, BlimpImport.date_header, rows_2p)
+        self.paqs = gsheet.df_col(self.df, BlimpImport.paq_header, rows_2p)
+        self.naparm_folders = gsheet.df_col(self.df, BlimpImport.naparm_header, rows_2p)
+        self.blimp_folders = gsheet.df_col(self.df, BlimpImport.blimp_header, rows_2p)
+        self.pycontrol_folders = gsheet.df_col(self.df, BlimpImport.pycontrol_header, rows_2p)
+
+        assert len(self.paqs) == len(self.naparm_folders) == len(self.blimp_folders) == len(self.dates_2p)
+        num_runs = len(self.paqs)
+
+    def get_object_and_test(self, run):
+        '''build obejct for a sepcific run and test that details have been entered correctly'''
+
+        date = self.dates_2p[run]
+        paq = self.paqs[run]
+        naparm = self.naparm_folders[run]
+        blimp = self.blimp_folders[run]
+        pycontrol = self.pycontrol_folders[run]
+
+        umbrella = os.path.join(BlimpImport.packerstation_path, date)
+        self.blimp_path, self.naparm_path = gsheet.path_finder(umbrella, blimp, naparm, is_folder=True)
+        self.pycontrol_path, self.paq_path = gsheet.path_finder(umbrella, pycontrol, paq, is_folder=False)
+
+        with open(os.path.join(self.blimp_path, 'blimpAlignment.txt'), 'r') as f:
+            barcode = [float(line.split(' ')[7][:-1]) for line in f.readlines()] #take the full stop off the end
+
+        #build behaviour object from the pycontrol txt file
+        self.behav = OptoStim2p(self.pycontrol_path)
+
+        #test that the list of barcodes printed in the pycontrol sequence is contained in the
+        #list of barcodes from the alignment folder
+        if not ''.join([str(b) for b in self.behav.barcode]) in ''.join([str(b) for b in barcode]):
+            raise ValueError('pycontrol {} does not match blimp folder {}'.format(pycontrol, blimp))
+        else:
+            print('pycontrol {} successfully matched to blimp folder {}'.format(pycontrol, blimp))
+
+        paq_obj = paq_read(self.paq_path)
+
+        paq_rsync = paq_data(paq_obj, 'pycontrol_rsync', threshold_ttl=True, plot=False)
+
+        try:
+            aligner = Rsync_aligner(pulse_times_A=self.behav.rsync, pulse_times_B=paq_rsync,
+                                    units_B=1000/paq_obj['rate'],  plot=False, raise_exception=True)
+
+            print('pycontrol {} rsync successfully matched to paq {}'.format(pycontrol, paq))
+        except:
+            print('pycontrol {} rsync could not be matched to paq {}'.format(pycontrol, paq))
+
+        return self.behav
