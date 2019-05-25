@@ -175,10 +175,10 @@ def path_finder(umbrella, *args,  is_folder=False):
 
 
 #### slicing / indexing functions #####
-def split_df(self, col_id):
+def split_df(df, col_id):
     '''slice whole dataframe by boolean value of col_id'''
-    idx = self.df.index[self.df[col_id]=='TRUE']
-    return self.df.loc[idx, :]
+    idx = df.index[df[col_id]=='TRUE']
+    return df.loc[idx, :]
 
 def df_bool(df, col_id):
     '''returns the rows of a pandas dataframe where col_id is TRUE'''
@@ -192,3 +192,38 @@ def df_col(df, col, idx='all'):
         idx = range(len(df))
 
     return [df.loc[idx,col] for idx in idx]
+
+
+def path_conversion(path_list, packerstation_path):
+    
+    '''converts local paths on 2p imaging computer to packerstation paths
+       only works with data arrangement as of 2019-03-27 will likely break in the future
+       
+       indeed, broken for vastly different paths (user, date, base folder etc.) in the same path_list 2019-05-24 (RL)
+       to fix: find the 'Data' string and if it is within the first p.split('\\') then it is Packer1 style,
+       if in second p.split('\\') it is in PackerStation style
+    '''
+    
+    converted_paths = []
+    
+    for p in path_list:
+        if not p:
+            raise Exception('ERROR: Path missing')
+        elif p.split('\\')[1] == 'Data':
+            # Packer1 path
+            name = (p.split('\\')[2])
+        elif p.split('\\')[2] == 'Data':
+            # PackerStation path
+            name = (p.split('\\')[1])
+        else:
+            # Could not recognise path style
+            raise Exception('ERROR: Could not recognise path style, make it Packer1 or PackerStation friendly')
+            
+        date = p.split('\\')[3]
+        local_path = os.path.join(packerstation_path, name, 'Data', date)
+        converted_path = os.path.join(local_path, *p.split('\\')[4:])
+        converted_path = converted_path.replace('"', '') #get rid of weird quote marks
+        converted_paths.append(converted_path)
+        
+    
+    return converted_paths

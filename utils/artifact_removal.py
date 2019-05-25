@@ -7,6 +7,9 @@ from skimage.measure import label, regionprops, find_contours
 import time
 import cv2
 
+from scipy.signal import convolve2d
+
+
 def find_threshold(tiff, thresh_list, sigma):
 
     '''
@@ -32,7 +35,20 @@ def binarise_frame(frame, thresh):
 
     return np.greater(frame, thresh).astype('int')
 
+#FUTURE?: instead of removing pixel information, replace with average of surround
+# def eight_neighbor_average_convolve2d(x):
+#     kernel = np.ones((3, 3))
+#     kernel[1, 1] = 0
 
+#     neighbor_sum = convolve2d(
+#         x, kernel, mode='same',
+#         boundary='fill', fillvalue=0)
+
+#     num_neighbor = convolve2d(
+#         np.ones(x.shape), kernel, mode='same',
+#         boundary='fill', fillvalue=0)
+
+#     return neighbor_sum / num_neighbor
 
 def process_frame(frame, frame_bin, width_thresh=10):
 
@@ -64,9 +80,14 @@ def process_frame(frame, frame_bin, width_thresh=10):
 
         # the width of the labelled region is thin or it is very asymmetrical
         if width < width_thresh:
-
+            
             frame[rows, cols] = 0
 
+            #FUTURE?: instead of removing pixel information, replace with average of surround
+#             neighbour_avg = eight_neighbor_average_convolve2d(frame)
+            
+#             frame[rows,cols] = neighbour_avg[rows, cols]
+            
             #useful for debugging
             #labelled[rows, cols] = 0
         else:
@@ -76,7 +97,7 @@ def process_frame(frame, frame_bin, width_thresh=10):
     return frame
 
 
-def artifact_removal(stack, thresh_list='up_to_stim1', remove_me='all', sigma=2, width_thresh=10):
+def artifact_removal(stack, thresh_list='up_to_stim1', remove_me='all', sigma=2, width_thresh=10, nplanes=1):
 
     '''
     main function for photostimulation artifact removal
@@ -102,17 +123,41 @@ def artifact_removal(stack, thresh_list='up_to_stim1', remove_me='all', sigma=2,
 
     if thresh_list == 'up_to_stim1':
         thresh_list = range(remove_me[0]-1)
+    
+    if nplanes > 1:
+#         thresh = np.empty((nplanes,stack.shape[1],stack.shape[2]))
+        
+        for i in range(nplanes):
+            frame_list = range(i,stack.shape[0],nplanes)
+            
+            thresh_list_sliced = [t for t in thresh_list if t in frame_list]
+            
+            thresh = find_threshold(stack[i::nplanes], thresh_list_sliced, sigma=sigma)
+            
+            for frame_idx in remove_me:
+                if frame_idx in frame_list:
+                    frame = stack[frame_idx, :, :]
 
-    thresh = find_threshold(stack, thresh_list, sigma=sigma)
+                    frame_bin = binarise_frame(frame, thresh)
 
-    for frame_idx in remove_me:
+                    processed_frame = process_frame(frame, frame_bin, width_thresh)
 
-        frame = stack[frame_idx, :, :]
+                    stack[frame_idx, :, :] = processed_frame
 
-        frame_bin = binarise_frame(frame, thresh)
+        return stack
+    
+    else:
+        
+        thresh = find_threshold(stack, thresh_list, sigma=sigma)
 
-        processed_frame = process_frame(frame, frame_bin, width_thresh)
+        for frame_idx in remove_me:
 
-        stack[frame_idx, :, :] = processed_frame
+            frame = stack[frame_idx, :, :]
 
-    return stack
+            frame_bin = binarise_frame(frame, thresh)
+
+            processed_frame = process_frame(frame, frame_bin, width_thresh)
+
+            stack[frame_idx, :, :] = processed_frame
+
+        return stack

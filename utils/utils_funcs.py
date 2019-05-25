@@ -137,8 +137,6 @@ def paq_data(paq, chan_name, threshold_ttl=False, plot=False):
     return data
 
 
-
-
 def stim_start_frame(paq, stim_chan_name):
 
     '''gets the frames (from channel frame_clock) that a stim occured on'''
@@ -156,3 +154,9 @@ def stim_start_frame(paq, stim_chan_name):
         frames.append(frame)
 
     return(frames)
+
+def myround(x, base=5):
+    
+    '''allow rounding to nearest base number for use with multiplane stack slicing'''
+    
+    return base * round(x/base)
