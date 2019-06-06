@@ -163,12 +163,9 @@ class OptoStimBasic():
 
 class OptoStim1p(OptoStimBasic):
         def __init__(self, txt_path):
-
             '''init this class to process the 1p opto_stim txt file in txt_path'''
-
             super().__init__(txt_path)
             self.autoreward()
-
 
         @property
         def LED_current(self):
@@ -209,6 +206,7 @@ class OptoStim1p(OptoStimBasic):
                 self.trial_autoswitch = None
 
 
+
 class OptoStim2p(OptoStimBasic):
     def __init__(self, txt_path):
         '''init this class to process the 2p opto_stim txt file in txt_path'''
@@ -216,12 +214,23 @@ class OptoStim2p(OptoStimBasic):
         super().__init__(txt_path)
 
         #the line that triggers an SLM trial throuh blimp
-        _trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial Number' in line]
+        _slm_trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial Number' in line]
+        _nogo_trigger_lines = [line for line in self.print_lines if 'Trigger NOGO trial' in line]
+        _alltrials_trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial Number' in line or 'Trigger NOGO trial' in line]
 
-        self.barcode = [float(line.split(' ')[7]) for line in _trigger_lines]
-        self.SLM_trial_number = [float(line.split(' ')[5]) for line in _trigger_lines]
+        self.slm_barcode = [float(line.split(' ')[7]) for line in _slm_trigger_lines]
+        self.slm_trial_number = [float(line.split(' ')[5]) for line in _slm_trigger_lines]
 
-        assert len(self.barcode) == self.trial_type.count('go') == max(self.SLM_trial_number)
+        self.nogo_barcode = [float(line.split(' ')[7]) for line in _nogo_trigger_lines]
+        self.nogo_trial_number = [float(line.split(' ')[5]) for line in _nogo_trigger_lines]
+
+        self.alltrials_barcodes = [float(line.split(' ')[7]) for line in _alltrials_trigger_lines]
+
+        assert len(self.slm_barcode) == self.trial_type.count('go')
+        #necessary to analyse sessions without nogo blimping
+        if len(self.nogo_barcode) > 0:
+            assert len(self.nogo_barcode) == self.trial_type.count('nogo')
+
         self.rsync = self.session.times.get('rsync')
 
 
@@ -248,17 +257,10 @@ class BlimpImport(OptoStim2p):
         gsheet given in sheet ID
         '''
         self.mouse_id = mouse_id
-
+        _sheet_name = self.mouse_id + '!A1:Z69'
+        self.df = gsheet.gsheet2df(BlimpImport.sheet_ID, HEADER_ROW=2, SHEET_NAME=_sheet_name)
+        self.df = gsheet.correct_behaviour_df(self.df)
         self.parse_spreadsheet()
-
-
-    @property
-    def df(self):
-        sheet_name = self.mouse_id + '!A1:Z69'
-        df = gsheet.gsheet2df(BlimpImport.sheet_ID, HEADER_ROW=2, SHEET_NAME=sheet_name)
-        #comment this out if not using behaviour spreadsheet
-        df = gsheet.correct_behaviour_df(df)
-        return df
 
     def parse_spreadsheet(self):
 
@@ -268,54 +270,73 @@ class BlimpImport(OptoStim2p):
 
         intersect = lambda A, B: set(A) - (set(A) - set(B))
 
-        rows_2p = intersect(idx_analyse, idx_2p)
-        rows_1p = intersect(idx_analyse, idx_1p)
+        self.rows_2p = intersect(idx_analyse, idx_2p)
+        self.rows_1p = intersect(idx_analyse, idx_1p)
 
-        self.dates_2p = gsheet.df_col(self.df, BlimpImport.date_header, rows_2p)
-        self.paqs = gsheet.df_col(self.df, BlimpImport.paq_header, rows_2p)
-        self.naparm_folders = gsheet.df_col(self.df, BlimpImport.naparm_header, rows_2p)
-        self.blimp_folders = gsheet.df_col(self.df, BlimpImport.blimp_header, rows_2p)
-        self.pycontrol_folders = gsheet.df_col(self.df, BlimpImport.pycontrol_header, rows_2p)
+        self.dates_2p = gsheet.df_col(self.df, BlimpImport.date_header, self.rows_2p)
+        self.paqs = gsheet.df_col(self.df, BlimpImport.paq_header, self.rows_2p)
+        self.naparm_folders = gsheet.df_col(self.df, BlimpImport.naparm_header, self.rows_2p)
+        self.blimp_folders = gsheet.df_col(self.df, BlimpImport.blimp_header, self.rows_2p)
+        self.pycontrol_folders = gsheet.df_col(self.df, BlimpImport.pycontrol_header, self.rows_2p)
 
         assert len(self.paqs) == len(self.naparm_folders) == len(self.blimp_folders) == len(self.dates_2p)
         num_runs = len(self.paqs)
 
-    def get_object_and_test(self, run):
-        '''build obejct for a sepcific run and test that details have been entered correctly'''
+    def get_object_and_test(self, run, raise_error=True):
 
-        date = self.dates_2p[run]
-        paq = self.paqs[run]
-        naparm = self.naparm_folders[run]
-        blimp = self.blimp_folders[run]
-        pycontrol = self.pycontrol_folders[run]
+        '''build object for a sepcific run and test that details have been entered correctly
+           this is currently implemented in a way that is useful for just getting behavioural information
+           and processing it in a seperate script.
+           The paq and alignment file is just used to check that all the paths etc are good. When i start to
+           use alignment and paq this function will need to be reworked
+        '''
+
+        self.run_pycontrol_txt = self.df.loc[self.df['Run Number'] == str(run)]['pycontrol txt'].tolist()[0]
+
+        run_idx = self.pycontrol_folders.index(self.run_pycontrol_txt)
+
+        date = self.dates_2p[run_idx]
+        paq = self.paqs[run_idx]
+        naparm = self.naparm_folders[run_idx]
+        blimp = self.blimp_folders[run_idx]
+        pycontrol = self.pycontrol_folders[run_idx]
 
         umbrella = os.path.join(BlimpImport.packerstation_path, date)
         self.blimp_path, self.naparm_path = gsheet.path_finder(umbrella, blimp, naparm, is_folder=True)
         self.pycontrol_path, self.paq_path = gsheet.path_finder(umbrella, pycontrol, paq, is_folder=False)
 
         with open(os.path.join(self.blimp_path, 'blimpAlignment.txt'), 'r') as f:
-            barcode = [float(line.split(' ')[7][:-1]) for line in f.readlines()] #take the full stop off the end
+            file_lines = f.readlines()
+            self.align_barcode = [float(line.split(' ')[7][:-1]) for line in file_lines] #take the full stop off the end
+            self.trial_info = [line.split('Info:')[-1].rstrip('\n').strip() for line in file_lines]
 
         #build behaviour object from the pycontrol txt file
-        self.behav = OptoStim2p(self.pycontrol_path)
-
+        super().__init__(self.pycontrol_path)
         #test that the list of barcodes printed in the pycontrol sequence is contained in the
         #list of barcodes from the alignment folder
-        if not ''.join([str(b) for b in self.behav.barcode]) in ''.join([str(b) for b in barcode]):
-            raise ValueError('pycontrol {} does not match blimp folder {}'.format(pycontrol, blimp))
+        if not ''.join([str(b) for b in self.alltrials_barcodes]) in ''.join([str(b) for b in self.align_barcode]):
+            error_str = 'pycontrol {} does not match blimp folder {}'
+            if raise_error: raise ValueError(error_str)
+            else: print(error_str)
         else:
             print('pycontrol {} successfully matched to blimp folder {}'.format(pycontrol, blimp))
 
-        paq_obj = paq_read(self.paq_path)
+        # read the paq file and get out useful info
+        _paq_obj = paq_read(self.paq_path)
 
-        paq_rsync = paq_data(paq_obj, 'pycontrol_rsync', threshold_ttl=True, plot=False)
+        self.paq_rsync = paq_data(_paq_obj, 'pycontrol_rsync', threshold_ttl=True, plot=False)
+        self.frame_clock = paq_data(_paq_obj, 'frame_clock', threshold_ttl=True, plot=False)
+        self.x_galvo_uncaging = paq_data(_paq_obj, 'x_galvo_uncaging', threshold_ttl=False, plot=False)
+        self.slm2packio = paq_data(_paq_obj, 'slm2packio', threshold_ttl=True, plot=False)
+        self.paq_rate = _paq_obj['rate']
 
         try:
-            aligner = Rsync_aligner(pulse_times_A=self.behav.rsync, pulse_times_B=paq_rsync,
-                                    units_B=1000/paq_obj['rate'],  plot=False, raise_exception=True)
-
+            self.aligner = Rsync_aligner(pulse_times_A=self.rsync, pulse_times_B=self.paq_rsync,
+                                    units_B=1000/_paq_obj['rate'],  plot=False, raise_exception=True)
+            self.paq_correct = True
             print('pycontrol {} rsync successfully matched to paq {}'.format(pycontrol, paq))
         except:
-            print('pycontrol {} rsync could not be matched to paq {}'.format(pycontrol, paq))
-
-        return self.behav
+            self.paq_correct = False
+            error_str = 'pycontrol rsync does not match paq'
+            if raise_error: raise ValueError(error_str)
+            else: print(error_str)
