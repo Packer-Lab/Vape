@@ -8,7 +8,6 @@ import csv
 import sys
 sys.path.append('..')
 from utils.data_import import Session
-#change this
 from utils.utils_funcs import paq_data
 from utils.utils_funcs import d_prime as pade_dprime
 import utils.gsheets_importer as gsheet

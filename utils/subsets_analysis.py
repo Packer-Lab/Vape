@@ -4,11 +4,14 @@ import pickle
 from utils.utils_funcs import d_prime
 import seaborn as sns
 import scipy
-
+import sys
+sys.path.append('..')
      
 class Subsets():
     def __init__(self, run):
-       self.run = run
+
+        self.run = run
+        self.subsets = np.unique(self.trial_subsets)
 
     @property
     def trial_subsets(self):
@@ -21,7 +24,6 @@ class Subsets():
                 trial_subsets.append(trial_subset)
         
         return np.array(trial_subsets)
-                                                
 
     @property
     def go_outcome(self):
@@ -41,7 +43,6 @@ class Subsets():
            
         assert len([t for t in self.run.trial_type if t== 'go']) == len(self.trial_subsets) == len(self.go_outcome)
         
-        self.subsets = np.unique(self.trial_subsets)
         subset_outcome = []
 
         for sub in self.subsets:
@@ -55,7 +56,7 @@ class Subsets():
 
 
     @property
-    def running_fa(self, run_number):
+    def running_fa(self):
     
         outcome = self.run.outcome
         nogo_outcome = []
@@ -74,23 +75,58 @@ class Subsets():
 
         return running_fa
 
+    
+    @property
+    def subset_running_hit(self):
 
+        outcome = self.run.outcome
+        go_outcome = []
+        for trial in outcome:
+            if trial == 'hit':
+                go_outcome.append(1)
+            elif trial == 'miss':
+                go_outcome.append(0)
+
+        go_outcome = np.array(go_outcome)
+        
+ 
+        subset_running_hit = [] 
+
+        for sub in self.subsets:
+            sub_idx = np.where(self.trial_subsets==sub)[0]
+            
+            running_sum = 0
+            running_hit = []
+            for i,trial in enumerate(go_outcome[sub_idx]):
+               running_sum += trial
+               running_hit.append(running_sum/(i+1))
+
+            subset_running_hit.append(running_hit)
+
+        return subset_running_hit 
+        
+       
 def analyse_subsets(mouse_id, run_numbers, variable_name):
     '''gets the value for the variable variable_name on each of the run numbers''' 
-
-    attr_list = []
+    object_list = []
     for run_number in run_numbers:
 
-        with open('/home/jamesrowland/Documents/Code/Vape/run_pkls/{}/run{}.pkl' \
-                    .format(mouse_id,run_number), 'rb') as f:
+        with open('/home/jamesrowland/Documents/Code/Vape/run_pkls/{}/run{}.pkl'\
+        .format(mouse_id,run_number), 'rb') as f:
 
             run = pickle.load(f)
 
         subsets_obj = Subsets(run)
-        attr = getattr(subsets_obj, variable_name)
-        attr_list.append(attr)
-        
+        object_list.append(subsets_obj)
+            
+    return object_list
+
+
+def subset_attr(attr_name, object_list):
+    attr_list = []
+    for obj in object_list:
+        attr_list.append(getattr(obj, attr_name))
+
     return attr_list
-
-
-
+        
+    
