@@ -1,85 +1,123 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
-from utils.utils_funcs import d_prime
+from utils_funcs import d_prime
 import seaborn as sns
 import scipy
 import sys
-sys.path.append('..')
      
 class Subsets():
     def __init__(self, run):
 
-        self.run = run
+        self.trial_info = run.trial_info
+        self.outcome = run.outcome
+        self.get_outcomes()
+        self.trial_subsets = self.get_trial_subsets()
+
+
         self.subsets = np.unique(self.trial_subsets)
 
-    @property
-    def trial_subsets(self):
+    def get_trial_subsets(self):
         
         trial_subsets = []
 
-        for i, info in enumerate(self.run.trial_info):
+        for i, info in enumerate(self.trial_info):
             if 'Nogo Trial' not in info:
-                trial_subset = float(info.split(' ')[info.split(' ').index('stimulating') + 1])
+                try:
+                    trial_subset = float(info.split(' ')[info.split(' ').index('stimulating') + 1])
+                except:
+                    raise ValueError('This is likely not a subset cells experiment')
+
                 trial_subsets.append(trial_subset)
         
         return np.array(trial_subsets)
 
-    @property
-    def go_outcome(self):
+    # @property
+    # def go_outcome(self):
             
-        go_outcome = []
-        for t in self.run.outcome:
-            if t == 'hit':
-                go_outcome.append(True)
-            elif t == 'miss':
-                go_outcome.append(False)
+        # go_outcome = []
+        # for t in self.outcome:
+            # if t == 'hit':
+                # go_outcome.append(True)
+            # elif t == 'miss':
+                # go_outcome.append(False)
                     
-        return np.array(go_outcome)
+        # return np.array(go_outcome)
        
+    # @property
+    # def nogo_outcome(self):
+
+        # nogo_outcome = []
+            
+        # for t in self.outcome:
+            # if t == 'fp':
+                # nogo_outcome.append(True)
+            # elif t == 'cr':
+                # nogo_outcome.append(False)
+
+    def get_outcomes(self):
+        self.go_outcome = []
+        self.nogo_outcome = []
+
+        for t in self.outcome:
+            if t == 'hit':
+                self.go_outcome.append(True)
+            elif t == 'miss':
+                self.go_outcome.append(False)
+            elif t =='cr':
+                self.nogo_outcome.append(False)
+            elif t == 'fp':
+                self.nogo_outcome.append(True)
+
+        self.go_outcome = np.array(self.go_outcome)
+        self.nogo_outcome = np.array(self.nogo_outcome)
+
 
     @property
     def subsets_dprime(self):
+        
            
-        assert len([t for t in self.run.trial_type if t== 'go']) == len(self.trial_subsets) == len(self.go_outcome)
+        # assert len([t for t in self.trial_type if t== 'go']) == len(self.trial_subsets) == len(self.go_outcome)
         
         subset_outcome = []
+        fp_rate = sum(self.nogo_outcome) / len(self.nogo_outcome)
 
         for sub in self.subsets:
             subset_idx = np.where(self.trial_subsets == sub)[0]
-
+            print(len(subset_idx))
             subset_outcome.append(sum(self.go_outcome[subset_idx]) / len(subset_idx))
             
-        subsets_dprime = [d_prime(outcome, self.run.fp_rate) for outcome in subset_outcome]
+        subsets_dprime = [d_prime(outcome, fp_rate) for outcome in subset_outcome]
 
         return subsets_dprime 
 
 
-    @property
-    def running_fa(self):
+    # @property
+    # def running_fa(self):
     
-        outcome = self.run.outcome
-        nogo_outcome = []
+        # outcome = self.outcome
+        # # need to look at this
+        # nogo_outcome = []
 
-        for trial in outcome:
-            if trial == 'fp':
-                nogo_outcome.append(1)
-            elif trial == 'cr':
-                nogo_outcome.append(0)
+        # for trial in outcome:
+            # if trial == 'fp':
+                # nogo_outcome.append(1)
+            # elif trial == 'cr':
+                # nogo_outcome.append(0)
         
-        running_sum = 0
-        running_fa = []
-        for i,trial in enumerate(nogo_outcome):
-           running_sum += trial
-           running_fa.append(running_sum/(i+1))
+        # running_sum = 0
+        # running_fa = []
+        # for i,trial in enumerate(nogo_outcome):
+           # running_sum += trial
+           # running_fa.append(running_sum/(i+1))
 
-        return running_fa
+        # return running_fa
 
     
     @property
     def subset_running_hit(self):
 
-        outcome = self.run.outcome
+        outcome = self.outcome
         go_outcome = []
         for trial in outcome:
             if trial == 'hit':
@@ -104,9 +142,16 @@ class Subsets():
             subset_running_hit.append(running_hit)
 
         return subset_running_hit 
+
+    def snip_session(self, start=0, end=None):
+        '''only take a subset of trials into property calculations above'''
+        self.go_outcome = self.go_outcome[start:end]
+        self.nogo_outcome = self.nogo_outcome[start:end]
+        self.trial_subsets = self.trial_subsets[start:end]
+
         
        
-def analyse_subsets(mouse_id, run_numbers, variable_name):
+def analyse_subsets(mouse_id, run_numbers):
     '''gets the value for the variable variable_name on each of the run numbers''' 
     object_list = []
     for run_number in run_numbers:
@@ -118,8 +163,10 @@ def analyse_subsets(mouse_id, run_numbers, variable_name):
 
         subsets_obj = Subsets(run)
         object_list.append(subsets_obj)
-            
-    return object_list
+           
+    # temporarily returning the varaible run (not in :wst) for some quick analysis
+    # in the future, you want each run pkl to be availble easily to notebooks
+    return object_list[0], run
 
 
 def subset_attr(attr_name, object_list):

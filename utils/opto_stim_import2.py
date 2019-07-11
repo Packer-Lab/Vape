@@ -1,18 +1,15 @@
 import warnings
-warnings.filterwarnings("ignore")
-
 import numpy as np
-import glob
 import os
-import csv
 import sys
 sys.path.append('..')
-from utils.data_import import Session
-from utils.utils_funcs import paq_data
-from utils.utils_funcs import d_prime as pade_dprime
-import utils.gsheets_importer as gsheet
-from utils.paq2py import paq_read
-from utils.rsync_aligner import Rsync_aligner
+from data_import import Session
+from utils_funcs import paq_data
+from utils_funcs import d_prime as pade_dprime
+import gsheets_importer as gsheet
+from paq2py import paq_read
+from rsync_aligner import Rsync_aligner
+warnings.filterwarnings("ignore")
 
 
 class OptoStimBasic():
@@ -93,13 +90,8 @@ class OptoStimBasic():
         nogo_start = self.session.times.get('detect_lick_nogo')
         trial_start = np.sort(np.hstack((go_start, nogo_start)))
 
-        return self.test_import_and_slice(trial_start)
-        #trial_start = np.sort(go_start+nogo_start)
-        #return self.test_import_and_slice(trial_start)
-        #     ''' the time that the trial started scope and normal task print different strings at trial start '''
-        #     trial_start = [float(line.split(' ')[0]) for line in self.print_lines if 'goTrial' in line or 'nogo_trial' in line or 'Trigger SLM trial' in line or 'Start NOGO trial' in line]
-        #     return self.test_import_and_slice(trial_start)
-
+        return self.test_import_and_slice(trial_start) 
+        
     @property
     def online_dprime(self):
         return [float(line.split(' ')[3]) for line in self.print_lines if 'd_prime is' in line]
@@ -127,12 +119,12 @@ class OptoStimBasic():
         return self.test_import_and_slice(binned_licks)
 
 
-
     @property
     def hit_rate(self):
         n_hits = (self.outcome=='hit').sum()
         n_miss = (self.outcome=='miss').sum()
         return n_hits / (n_hits + n_miss)
+
 
     @property
     def fp_rate(self):
@@ -140,10 +132,21 @@ class OptoStimBasic():
         n_cr = (self.outcome=='cr').sum()
         return n_fa / (n_fa + n_cr)
 
+
     @property
     def dprime(self):
         #use matthias approximation
         return pade_dprime(self.hit_rate, self.fp_rate)
+
+    
+
+
+
+
+
+
+
+
 
     def test_import_and_slice(self, list_):
         '''
@@ -241,7 +244,7 @@ class BlimpImport(OptoStim2p):
 
     #the name of the file path column
     date_header = 'Date'
-    t_series_header = 't-series name'
+    tseries_header = 't-series name'
     paq_header = '.paq file'
     naparm_header = 'Naparm'
     blimp_header = 'blimp folder'
@@ -277,6 +280,8 @@ class BlimpImport(OptoStim2p):
         self.naparm_folders = gsheet.df_col(self.df, BlimpImport.naparm_header, self.rows_2p)
         self.blimp_folders = gsheet.df_col(self.df, BlimpImport.blimp_header, self.rows_2p)
         self.pycontrol_folders = gsheet.df_col(self.df, BlimpImport.pycontrol_header, self.rows_2p)
+        self.tseries_folders = gsheet.df_col(self.df, BlimpImport.tseries_header, self.rows_2p)
+        
 
         assert len(self.paqs) == len(self.naparm_folders) == len(self.blimp_folders) == len(self.dates_2p)
         num_runs = len(self.paqs)
@@ -299,10 +304,15 @@ class BlimpImport(OptoStim2p):
         naparm = self.naparm_folders[run_idx]
         blimp = self.blimp_folders[run_idx]
         pycontrol = self.pycontrol_folders[run_idx]
+        tseries = self.tseries_folders[run_idx]
 
         umbrella = os.path.join(BlimpImport.packerstation_path, date)
-        self.blimp_path, self.naparm_path = gsheet.path_finder(umbrella, blimp, naparm, is_folder=True)
+        self.blimp_path, self.naparm_path  = gsheet.path_finder(umbrella, blimp, naparm, is_folder=True)
         self.pycontrol_path, self.paq_path = gsheet.path_finder(umbrella, pycontrol, paq, is_folder=False)
+        
+        self.tseries_paths = []
+        for t in tseries:
+            self.tseries_paths.append(gsheet.path_finder(umbrella, t, is_folder=True))
 
         with open(os.path.join(self.blimp_path, 'blimpAlignment.txt'), 'r') as f:
             file_lines = f.readlines()

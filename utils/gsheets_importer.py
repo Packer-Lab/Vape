@@ -1,9 +1,12 @@
 import pickle
 import os.path
+import sys
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import pandas as pd
+import sys
+sys.path.append('/home/jamesrowland/Documents/Code/Vape/utils')
 
 
 def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
@@ -32,13 +35,13 @@ def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+                '/home/jamesrowland/Documents/Code/Vape/utils/credentials.json', SCOPES)
             creds = flow.run_local_server()
         # Save the credentials for the next run
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
 
-    service = build('sheets', 'v4', credentials=creds)
+    service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
 
     # Call the Sheets API
     sheet = service.spreadsheets()
@@ -121,7 +124,7 @@ def correct_behaviour_df(df, t_series_header='t-series name'):
             df = df.drop(row, axis=0)
 
     # fix newline lists
-    for column_header in [t_series_header, 'Number of frames']:
+    for column_header in [t_series_header, 't-series name']:
         for row, val in enumerate(df[column_header]):
 
             if '\n' in val:
