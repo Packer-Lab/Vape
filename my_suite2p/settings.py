@@ -3,7 +3,7 @@ import numpy as np
 
 ops = {
         'batch_size': 200, # reduce if running out of RAM
-        'fast_disk': '/home/jamesrowland/Documents/suite2p_binaries', # used to store temporary binary file, defaults to save_path0 (set as a string NOT a list)
+        'fast_disk': '/media/jamesrowland/DATA/suite2p_binaries', # used to store temporary binary file, defaults to save_path0 (set as a string NOT a list)
         #'save_path0': '/media/jamesrowland/DATA/plab/suite_2p', # stores results, defaults to first item in data_path
         'delete_bin': False, # whether to delete binary file after processing
         # main settings

@@ -38,6 +38,25 @@ def dfof(arr):
     return np.array(dfof_arr)
 
 
+def dfof2(flu):
+    '''
+    delta f over f, this function is orders of magnitude faster than the dumb one above
+    takes input matrix flu (num_cells x num_frames)
+    (JR 2019)
+
+    '''
+
+    flu_mean = np.mean(flu,1)
+    flu_mean = np.reshape(flu_mean, (len(flu_mean), 1))
+    return (flu - flu_mean) / flu_mean
+
+    
+    
+
+
+
+
+
 def get_tiffs(path):
 
     tiff_files = []
@@ -48,7 +67,7 @@ def get_tiffs(path):
     return tiff_files
 
 
-def s2p_loader(s2p_path, subtract_neuropil=True):
+def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff = 0.7):
 
     for root, dirs, files in os.walk(s2p_path):
 
@@ -61,6 +80,7 @@ def s2p_loader(s2p_path, subtract_neuropil=True):
             elif file == 'iscell.npy':
                 is_cells = np.load(os.path.join(root, file))[:, 0]
                 is_cells = np.ndarray.astype(is_cells, 'bool')
+                print('Loading {} traces labelled as cells'.format(sum(is_cells)))
             elif file == 'stat.npy':
                 stat = np.load(os.path.join(root, file))
 
@@ -73,8 +93,31 @@ def s2p_loader(s2p_path, subtract_neuropil=True):
         return all_cells[is_cells, :], stat
 
     else:
-        neuropil_corrected = all_cells - neuropil
+        print('Subtracting neuropil with a coefficient of {}'.format(neuropil_coeff))
+        neuropil_corrected = all_cells - neuropil * neuropil_coeff
         return neuropil_corrected[is_cells, :], stat
+
+
+def correct_s2p_combined(s2p_path):
+
+    len_count = 0 
+    for i in range(3):
+        iscell = np.load(os.path.join(s2p_path, 'plane{}'.format(i), 'iscell.npy'))
+        if i == 0: 
+            allcells = iscell
+        else: 
+            allcells = np.vstack((allcells, iscell))
+
+        len_count += len(iscell)
+        
+    combined_iscell = os.path.join(s2p_path, 'combined', 'iscell.npy')
+
+    ic =  np.load(combined_iscell)
+    assert ic.shape == allcells.shape
+    assert len_count == len(ic)
+
+    np.save(combined_iscell, allcells)
+
 
 
 def read_fiji(csv_path):
@@ -165,3 +208,7 @@ def myround(x, base=5):
        use with multiplane stack slicing'''
 
     return base * round(x/base)
+
+
+
+
