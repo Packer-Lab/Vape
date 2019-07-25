@@ -1,5 +1,5 @@
-# Class for converting timestamps between recording systems using sync pulses with
-# random inter-pulse intervals.
+# Class for converting timestamps between recording systems using sync pulses with 
+# random inter-pulse intervals. 
 # https://pycontrol.readthedocs.io/en/latest/user-guide/synchronisation
 # Dependencies:  Python 3, Numpy, Matplotlib, Scikit-learn.
 # (c) Thomas Akam 2018. Released under the GPL-3 open source licence.
@@ -13,7 +13,7 @@ class RsyncError(Exception):
 
 class Rsync_aligner():
 
-    def __init__(self, pulse_times_A, pulse_times_B, units_A=1, units_B=1,
+    def __init__(self, pulse_times_A, pulse_times_B, units_A=1, units_B=1, 
                  chunk_size=5, plot=False, raise_exception=True):
         '''Class for converting timestamps between two recording systems
         (e.g  pyControl and an ephys) using sync pulses with random inter-pulse
@@ -21,21 +21,29 @@ class Rsync_aligner():
         by pyControl using the Rsync hardware object and sent to other systems. To use the
         Rsync_aligner,instantiate it by providing the sync pulse times recorded by each
         system. Timestamps from either system can then be converted into the reference frame
-        of the other using the A_to_B and B_to_A methods.  If the hardware systems use
+        of the other using the A_to_B and B_to_A methods.  If the hardware systems use 
         different units to measure time this must be specified using the units arguments
-        when the aligner is instantiated. When the aligner is instantiated it works out
-        which pulses in each reference frame correspond to each other by by aligning
-        short chunks of pulse sequence A with B by minimising the mean squared error
+        when the aligner is instantiated. When the aligner is instantiated it works out 
+        which pulses in each reference frame correspond to each other by by aligning 
+        short chunks of pulse sequence A with B by minimising the mean squared error 
         between inter-pulse intervals.
+
         Arguments:
+
         pulse_times_A: The times when sync pulses occured recorded by hardware system A.
+
         pulse_times_B: The times when sync pulses occured recorded by hardware system B.
-        units_A: The time units used by system A expressed in milliseconds.  E.g. if
-                 system A uses units of seconds the *units_A* argument is 1000.
+
+        units_A: The time units used by system A expressed in milliseconds.  E.g. if 
+                 system A uses units of seconds the *units_A* argument is 1000.  
+
         units_B: The time units used by system B expressed in milliseconds.
+
         plot: Whether to plot information about the alignment.
+
         raise_exception: If *True* an RsyncError exception is raised if no match is found
                          between the sync pulse sequences.
+
         '''
 
         # Convert all units to ms.
@@ -60,9 +68,11 @@ class Rsync_aligner():
             chunk_min_mse[i] = sorted_chunk_min_mse[0]
             chunk_2nd_mse[i] = sorted_chunk_min_mse[1]
         # Assign chunks to matched and non-matched groups by fitting 2 component
-        # Gaussian mixture model to log mse distribition of best + second best
+        # Gaussian mixture model to log mse distribition of best + second best 
         # alignments.
-        log_mse = np.log(np.hstack([chunk_min_mse,chunk_2nd_mse]))
+        chunk_mse = np.hstack([chunk_min_mse,chunk_2nd_mse]) 
+        chunk_mse[chunk_mse == 0] = np.min(chunk_mse[chunk_mse != 0]) # Replace zeros with smallest non zero value.
+        log_mse = np.log(chunk_mse)
         log_mse = log_mse[np.isfinite(log_mse)].reshape(-1,1)
         gmm = GaussianMixture(n_components=2, covariance_type='spherical')
         gmm.fit(log_mse)
@@ -102,11 +112,12 @@ class Rsync_aligner():
             plt.ylabel('# chunks')
             plt.subplot2grid((3,3),(0,2),rowspan=1,colspan=1)
             timing_errors = np.diff(cor_times_A) - np.diff(pulse_times_B)
-            plt.hist(timing_errors[~np.isnan(timing_errors)],20)
+            plt.hist(timing_errors[~np.isnan(timing_errors)],100)
+            plt.yscale('log', nonposy='clip')
             plt.xlabel('Inter-pulse interval\ndiscrepancy (ms)')
             plt.ylabel('# pulses')
             plt.subplot2grid((3,1),(1,0),rowspan=2,colspan=1)
-            plt.plot(pulse_times_A/units_A, cor_times_B/units_B , '.', markersize=2)
+            plt.plot(pulse_times_A/units_A, cor_times_B/units_B , '.', markersize=2)  
             plt.xlim(pulse_times_A[0]/units_A,pulse_times_A[-1]/units_A)
             plt.xlabel('pulse times A')
             plt.ylabel('pulse times B')

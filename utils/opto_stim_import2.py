@@ -85,14 +85,6 @@ class OptoStimBasic():
         return self.test_import_and_slice(trial_type)
 
     @property
-    def trial_start(self):
-        go_start = self.session.times.get('detect_lick_go')
-        nogo_start = self.session.times.get('detect_lick_nogo')
-        trial_start = np.sort(np.hstack((go_start, nogo_start)))
-
-        return self.test_import_and_slice(trial_start) 
-        
-    @property
     def online_dprime(self):
         return [float(line.split(' ')[3]) for line in self.print_lines if 'd_prime is' in line]
 
@@ -139,15 +131,6 @@ class OptoStimBasic():
         return pade_dprime(self.hit_rate, self.fp_rate)
 
     
-
-
-
-
-
-
-
-
-
     def test_import_and_slice(self, list_):
         '''
         test that import has been done correctly and slice to remove end trial if IndexError in task
@@ -164,6 +147,7 @@ class OptoStimBasic():
 
 
 class OptoStim1p(OptoStimBasic):
+
         def __init__(self, txt_path):
             '''init this class to process the 1p opto_stim txt file in txt_path'''
             super().__init__(txt_path)
@@ -199,14 +183,33 @@ class OptoStim1p(OptoStimBasic):
                 else: self.autorewarded_trial.append(False)
 
             ## did mouse get out of autreward phase?
-            time_autoswitch = self.pl_times('switching out of auto')[0]
-
+            
+            time_autoswitch = self.pl_times('switching out of auto')
+                
             ## find the trial number this happened by finding the index of the closest trial start time (+1)
             if time_autoswitch:
-                self.trial_autoswitch = np.abs(self.trial_time - time_autoswitch).argmin() + 1
+                self.trial_autoswitch = np.abs(self.trial_time - time_autoswitch[0]).argmin() + 1
             else:
                 self.trial_autoswitch = None
 
+        @property
+        def trial_complete(self):
+            time_complete =  self.pl_times('mouse has completed task to lowest power level')
+
+            if time_complete:
+                return np.abs(self.trial_time - time_complete[0]).argmin() + 1
+            else:
+                return None
+
+
+        @property
+        def trial_start(self):
+            go_start = self.session.times.get('detect_lick_go')
+            nogo_start = self.session.times.get('detect_lick_nogo')
+            ts = np.sort(np.hstack((go_start, nogo_start)))
+
+            return self.test_import_and_slice(ts) 
+            
 
 
 class OptoStim2p(OptoStimBasic):
@@ -234,7 +237,12 @@ class OptoStim2p(OptoStimBasic):
             assert len(self.nogo_barcode) == self.trial_type.count('nogo')
 
         self.rsync = self.session.times.get('rsync')
+        go_start = self.session.times.get('SLM_state')
+        nogo_start = self.session.times.get('nogo_state')
+        ts = np.sort(np.hstack((go_start, nogo_start)))
 
+        self.trial_start = self.test_import_and_slice(ts) 
+     
 
 class BlimpImport(OptoStim2p):
 
@@ -265,6 +273,9 @@ class BlimpImport(OptoStim2p):
         self.parse_spreadsheet()
 
     def parse_spreadsheet(self):
+    
+        ''' parses the spreadsheet for dealing with 2p behaviour
+            use import_1p for 1-photon behaviour'''
 
         idx_analyse = gsheet.df_bool(self.df, BlimpImport.analyse_bool_header)
         idx_2p = gsheet.df_bool(self.df, 'Trained 2P')
@@ -285,6 +296,24 @@ class BlimpImport(OptoStim2p):
 
         assert len(self.paqs) == len(self.naparm_folders) == len(self.blimp_folders) == len(self.dates_2p)
         num_runs = len(self.paqs)
+
+    def import_1p(self):
+        
+        dates_1p = gsheet.df_col(self.df, BlimpImport.date_header, self.rows_1p)
+        pycontrol_1p = gsheet.df_col(self.df, BlimpImport.pycontrol_header, self.rows_1p)
+
+        obj_list = []
+        for date, pyc in zip(dates_1p, pycontrol_1p):
+            umbrella = os.path.join(BlimpImport.packerstation_path, date)
+            pycontrol_path = gsheet.path_finder(umbrella, pyc, is_folder=False)
+            obj = OptoStim1p(pycontrol_path[0])
+            obj_list.append(obj)
+
+        return obj_list
+
+            #print(self.pycontrol_path)
+
+       
 
     def get_object_and_test(self, run, raise_error=True):
 
@@ -341,11 +370,14 @@ class BlimpImport(OptoStim2p):
 
         try:
             self.aligner = Rsync_aligner(pulse_times_A=self.rsync, pulse_times_B=self.paq_rsync,
-                                    units_B=1000/_paq_obj['rate'],  plot=False, raise_exception=True)
+                                    units_B=1000/_paq_obj['rate'], chunk_size=6, plot=False, raise_exception=True)
             self.paq_correct = True
+            self.testytest = True
             print('pycontrol {} rsync successfully matched to paq {}'.format(pycontrol, paq))
         except:
             self.paq_correct = False
             error_str = 'pycontrol rsync does not match paq'
             if raise_error: raise ValueError(error_str)
             else: print(error_str)
+
+

@@ -32,6 +32,25 @@ class Subsets():
         
         return np.array(trial_subsets)
 
+    def get_full_list(self):
+        '''temporary function '''
+
+        trial_subsets = []
+
+        for i, info in enumerate(self.trial_info):
+            if 'Nogo Trial' not in info:
+                try:
+                    trial_subset = float(info.split(' ')[info.split(' ').index('stimulating') + 1])
+                except:
+                    raise ValueError('This is likely not a subset cells experiment')
+                trial_subsets.append(trial_subset)
+            else:
+                trial_subsets.append('Nogo')
+
+        
+        return np.array(trial_subsets)
+
+
     # @property
     # def go_outcome(self):
             

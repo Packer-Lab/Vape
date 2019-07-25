@@ -20,7 +20,8 @@ sns.set_style('white')
 def dfof(arr):
 
     '''takes 1d list or array or 2d array and returns dfof array of same
-       dim (JR 2019)'''
+       dim (JR 2019) This is extraordinarily slow, use dfof2'''
+
 
     if type(arr) is list or type(arr) == np.ndarray and len(arr.shape) == 1:
         F = np.mean(arr)
@@ -50,12 +51,6 @@ def dfof2(flu):
     flu_mean = np.reshape(flu_mean, (len(flu_mean), 1))
     return (flu - flu_mean) / flu_mean
 
-    
-    
-
-
-
-
 
 def get_tiffs(path):
 
@@ -68,6 +63,8 @@ def get_tiffs(path):
 
 
 def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff = 0.7):
+
+    found_stat = False
 
     for root, dirs, files in os.walk(s2p_path):
 
@@ -83,7 +80,11 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff = 0.7):
                 print('Loading {} traces labelled as cells'.format(sum(is_cells)))
             elif file == 'stat.npy':
                 stat = np.load(os.path.join(root, file))
+                found_stat = True
 
+    if not found_stat:
+        raise FileNotFoundError('Could not find stat, ' \
+                                'this is likely not a suit2p folder')
     for i, s in enumerate(stat):
         s['original_index'] = i
 
