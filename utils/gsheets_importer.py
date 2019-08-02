@@ -157,7 +157,7 @@ def path_finder(umbrella, *args,  is_folder=False):
             for folder in dirs:
                 for i,arg in enumerate(args):
                     if arg in folder:
-                        assert not found[i]
+                        assert not found[i], 'found at least two paths for {}, search {} to find conflicts'.format(arg,umbrella) 
                         paths[i] = os.path.join(root, folder)
                         found[i] = True
 
@@ -166,7 +166,7 @@ def path_finder(umbrella, *args,  is_folder=False):
             for file in files:
                 for i,arg in enumerate(args):
                     if arg in file:
-                        assert not found[i]
+                        assert not found[i], 'found at least two paths for {}, search {} to find conflicts'.format(arg,umbrella)
                         paths[i] = os.path.join(root, file)
                         found[i] = True
 
