@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 import suite2p
 print(suite2p.__path__)
 from suite2p.run_s2p import run_s2p
+
 from settings import ops
 
 
@@ -226,21 +227,24 @@ class interarealAnalysis():
                 else:
                     self.cell_area.append(1)
 
-    def s2pProcessing(self):
+    def s2pProcessing(self, subtract_neuropil=False):
         
         self.cell_id = []
+        self.n_units = []
         self.cell_plane = []
         self.cell_med = []
         self.cell_x = []
         self.cell_y = []
         self.raw = []
+        self.mean_img = []
 
         for plane in range(self.n_planes):
             s2p_path = os.path.join(self.tiff_path, 'suite2p', 'plane' + str(plane))
-            FminusFneu, stat = s2p_loader(s2p_path, subtract_neuropil=True)
+            FminusFneu, _, stat = s2p_loader(s2p_path, subtract_neuropil)
+            ops = np.load(os.path.join(s2p_path,'ops.npy')).item()
 
             self.raw.append(FminusFneu)
-
+            self.mean_img.append(ops['meanImg'])
             cell_id = []
             cell_plane = []
             cell_med = []
@@ -254,6 +258,7 @@ class interarealAnalysis():
                 cell_y.append(s['ypix'])
             
             self.cell_id.append(cell_id)
+            self.n_units.append(len(self.cell_id))
             self.cell_med.append(cell_med)
             self.cell_x.append(cell_x)
             self.cell_y.append(cell_y)
@@ -389,9 +394,10 @@ class interarealAnalysis():
         if self.stim_type == 'p':
             self.photostimProcessing()
 
-    def cellStaProcessing(self):
+    def cellStaProcessing(self, test='t_test'):
         #this is the key parameter for the sta, how many frames before and after the stim onset do you want to use
         pre_frames = int(np.ceil(self.fps*0.5)) # 500 ms pre-stim period
+        print(pre_frames)
         post_frames = int(np.ceil(self.fps*3)) # 3000 ms post-stim period
 
         #list of cell pixel intensity values during each stim on each trial
@@ -433,7 +439,7 @@ class interarealAnalysis():
                 for stim in self.stim_start_frames[plane]:
                     
                     # get baseline values from pre_stim
-                    pre_stim_f  = unit[ stim-pre_frames : stim ]
+                    pre_stim_f  = unit[ stim - pre_frames : stim ]
                     baseline = np.mean(pre_stim_f)
 
                     # the whole trial and dfof using baseline
@@ -492,19 +498,46 @@ class interarealAnalysis():
             self.wilcoxons.append(np.array(wilcoxons))
         
         plt.figure()
-        plt.plot([avg_post_start+1] * 2, [-1000, 1000])
+        plt.plot([avg_post_start] * 2, [-1000, 1000])
         plt.plot([avg_post_end] * 2, [-1000, 1000])
-        plt.plot([pre_frames-1] * 2, [-1000, 1000])
+        plt.plot([pre_frames] * 2, [-1000, 1000])
         plt.plot([0] * 2, [-1000, 1000])
         plt.plot(stas[5])
         plt.plot(stas[10])
         plt.plot(stas[15])
-        plt.ylim([-100,200]);    
+        plt.ylim([-100,200]) 
 
-    def cellSignificance(self):
-        #set this to true if you want to multiple comparisons correct for the number of cells
-        multi_comp_correction = True
-        if not multi_comp_correction: 
-            divisor = 1
-        else:
-            divisor = num_units
+        self.staSignificance(test)   
+
+    def staSignificance(self, test):
+        
+        self.sig_units = []
+        
+        for plane in range(self.n_planes):
+            
+            #set this to true if you want to multiple comparisons correct for the number of cells
+            multi_comp_correction = True
+            if not multi_comp_correction: 
+                divisor = 1
+            else:
+                divisor = self.n_units[plane]
+
+            if test is 't_test':
+                p_vals = [t[1] for t in self.t_tests[plane]]
+            if test is 'wilcoxon':
+                p_vals = [t[1] for t in self.wilcoxons[plane]]
+
+            if multi_comp_correction:
+                print('performing t-test on cells with mutliple comparisons correction')
+            else:
+                print('performing t-test on cells without mutliple comparisons correction')
+
+            sig_units = []
+            
+            for i,p in enumerate(p_vals):
+                if p < (0.05 / divisor):
+                    unit_index = self.cell_id[plane][i]
+                    # print('stimulation has significantly changed fluoresence of s2p unit {}, its P value is {}'.format(unit_index, p))
+                    sig_units.append(unit_index) #significant units
+
+            self.sig_units.append(sig_units)  
