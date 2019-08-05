@@ -6,7 +6,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import pandas as pd
 import sys
-sys.path.append('/home/jamesrowland/Documents/Code/Vape/utils')
 
 
 def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
@@ -51,7 +50,7 @@ def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
     return gsheet
 
 
-def gsheet2df(SPREADSHEET_ID, HEADER_ROW, SHEET_NAME='Sheet1'):
+def gsheet2df(SPREADSHEET_ID, HEADER_ROW, SHEET_NAME='Sheet1!A:F'):
 
     '''
     Imports the sheet defined in SPREADSHEET_ID as a pandas dataframe
