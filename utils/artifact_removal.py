@@ -5,7 +5,7 @@ from tifffile import *
 import numpy as np
 from skimage.measure import label, regionprops, find_contours
 import time
-import cv2
+#import cv2
 
 from scipy.signal import convolve2d
 

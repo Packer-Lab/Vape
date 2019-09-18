@@ -5,6 +5,7 @@ from utils_funcs import d_prime
 import seaborn as sns
 import scipy
 import sys
+import re
      
 class Subsets():
     def __init__(self, run):
@@ -12,10 +13,13 @@ class Subsets():
         self.trial_info = run.trial_info
         self.outcome = run.outcome
         self.get_outcomes()
-        self.trial_subsets = self.get_trial_subsets()
 
+        if run.session.task_name == 'opto_stim_scope_threeway':
+            self.trial_subsets = self.get_trial_subsets_easytest()
+        else:
+            self.trial_subsets = self.get_trial_subsets()
 
-        self.subsets = np.unique(self.trial_subsets)
+        self.subset_sizes = np.unique(self.trial_subsets)
 
     def get_trial_subsets(self):
         
@@ -29,10 +33,29 @@ class Subsets():
                     raise ValueError('This is likely not a subset cells experiment')
 
                 trial_subsets.append(trial_subset)
+
+        return np.array(trial_subsets)
         
+    def get_trial_subsets_easytest(self):
+
+        trial_subsets = []
+        subsets_paths = []
+
+        for i, info in enumerate(self.trial_info):
+            if 'Nogo Trial' in info:
+                continue
+            elif 'all_cells_stimulated' in info:
+                trial_subsets.append(150)
+            elif 'Subset cells experiment' in info:
+                trial_subset = int(re.search('(?<=stimulating )(.*)(?= cells)', info).group(0))
+                trial_subsets.append(trial_subset)
+                subsets_path = info.split('File path is ')[-1]
+
         return np.array(trial_subsets)
 
+
     def get_full_list(self):
+
         '''temporary function '''
 
         trial_subsets = []

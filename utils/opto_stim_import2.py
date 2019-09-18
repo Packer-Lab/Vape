@@ -10,6 +10,7 @@ import gsheets_importer as gsheet
 from paq2py import paq_read
 from rsync_aligner import Rsync_aligner
 import re
+from ntpath import basename 
 warnings.filterwarnings("ignore")
 
 
@@ -260,6 +261,7 @@ class BlimpImport(OptoStim2p):
     naparm_header = 'Naparm'
     blimp_header = 'blimp folder'
     pycontrol_header = 'pycontrol txt'
+    prereward_header = 'Pre-reward?'
     plane_header = 'Number of planes'
     analyse_bool_header = 'Analyse'
 
@@ -297,6 +299,7 @@ class BlimpImport(OptoStim2p):
         self.naparm_folders = gsheet.df_col(self.df, BlimpImport.naparm_header, self.rows_2p)
         self.blimp_folders = gsheet.df_col(self.df, BlimpImport.blimp_header, self.rows_2p)
         self.pycontrol_folders = gsheet.df_col(self.df, BlimpImport.pycontrol_header, self.rows_2p)
+        self.prereward_folders = gsheet.df_col(self.df, BlimpImport.prereward_header, self.rows_2p)
         self.tseries_folders = gsheet.df_col(self.df, BlimpImport.tseries_header, self.rows_2p)
         self.plane_numbers = gsheet.df_col(self.df, BlimpImport.plane_header, self.rows_2p)
 
@@ -343,16 +346,21 @@ class BlimpImport(OptoStim2p):
         naparm = self.naparm_folders[run_idx]
         blimp = self.blimp_folders[run_idx]
         pycontrol = self.pycontrol_folders[run_idx]
+        prereward = self.prereward_folders[run_idx]
         tseries = self.tseries_folders[run_idx]
-        self.num_planes = int(self.plane_numbers[run_idx])
+        if self.plane_numbers[run_idx]:
+            self.num_planes = int(self.plane_numbers[run_idx])
+        else:
+            self.num_planes = None
 
         umbrella = os.path.join(BlimpImport.packerstation_path, date)
         self.blimp_path, self.naparm_path  = gsheet.path_finder(umbrella, blimp, naparm, is_folder=True)
-        self.pycontrol_path, self.paq_path = gsheet.path_finder(umbrella, pycontrol, paq, is_folder=False)
+        self.pycontrol_path, self.paq_path, self.prereward_path = gsheet.path_finder(umbrella, pycontrol, paq, prereward, is_folder=False)
         
-        self.tseries_paths = []
-        for t in tseries: 
-            self.tseries_paths.append(gsheet.path_finder(umbrella, t, is_folder=True))
+        if tseries == 'None' or not tseries:
+            self.tseries_paths = None
+        else:
+            self.tseries_paths = [gsheet.path_finder(umbrella, t, is_folder=True) for t in tseries]
 
         with open(os.path.join(self.blimp_path, 'blimpAlignment.txt'), 'r') as f:
             file_lines = f.readlines()
@@ -381,23 +389,41 @@ class BlimpImport(OptoStim2p):
 
         try:
             self.aligner = Rsync_aligner(pulse_times_A=self.rsync, pulse_times_B=self.paq_rsync,
-                                    units_B=1000/_paq_obj['rate'], chunk_size=6, plot=False, raise_exception=True)
+                                        units_B=1000/self.paq_rate, chunk_size=6, plot=False, raise_exception=True)
             self.paq_correct = True
-            print('pycontrol {} rsync successfully matched to paq {}'.format(pycontrol, paq))
-        except:
+            print('pycontrol {} rsync successfully matched to paq {}'.format(basename(self.prereward_path), basename(self.paq_path)))
+        except Exception as e:
+            print(e)
             self.paq_correct = False
             error_str = 'pycontrol rsync does not match paq'
-            if raihe_error: raise ValueError(error_str)
+            if raise_error: raise ValueError(error_str)
             else: print(error_str)
 
+        if prereward:
+            self.process_prereward(raise_error=raise_error)
 
+        
+    def process_prereward(self, raise_error):
+        ''' process the prereward txt file '''
 
-
-
-
-
-
-
+        prereward_session = Session(self.prereward_path) 
+        self.pre_rsync = prereward_session.times.get('rsync')
+        self.pre_licks = prereward_session.times.get('lick_1')
+        self.pre_reward = prereward_session.times.get('reward')
+        try:
+            self.prereward_aligner = Rsync_aligner(pulse_times_A=self.pre_rsync, pulse_times_B=self.paq_rsync,
+                                    units_B=1000/self.paq_rate, chunk_size=6, plot=False, raise_exception=True)
+            self.paq_correct = True
+            print('prereward {} rsync successfully matched to paq {}'.format(basename(self.prereward_path), basename(self.paq_path)))
+        except:
+            self.paq_correct = False
+            error_str = 'prereward rsync does not match paq'
+            if raise_error: raise ValueError(error_str)
+            else: print(error_str)
+        
+        self.both_aligner =  Rsync_aligner(pulse_times_A = np.hstack((self.pre_rsync, self.rsync)), 
+                                           pulse_times_B = self.paq_rsync, units_B = 1000/self.paq_rate,
+                                           chunk_size=6, plot=False, raise_exception=True)
 
 
 

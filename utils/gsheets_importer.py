@@ -193,8 +193,11 @@ def df_col(df, col, idx='all'):
     if idx=='all':
         idx = range(len(df))
 
-    return [df.loc[idx,col] for idx in idx]
-
+    try:
+        return [df.loc[idx,col] for idx in idx]
+    except KeyError:
+        print('Spreadsheet does not have column "{}"'.format(col))
+        return None
 
 def path_conversion(path_list, packerstation_path):
     

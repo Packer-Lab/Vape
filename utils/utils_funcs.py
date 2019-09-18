@@ -189,14 +189,22 @@ def paq_data(paq, chan_name, threshold_ttl=False, plot=False):
     return data
 
 
-def stim_start_frame(paq, stim_chan_name):
+def stim_start_frame(paq=None, stim_chan_name=None, frame_clock=None, 
+                     stim_times=None):
 
-    '''gets the frames (from channel frame_clock) that a stim occured on'''
+    '''Returns the frames from a frame_clock that a stim occured on.
+       Either give paq and stim_chan_name as arugments if using 
+       unprocessed paq. 
+       Or predigitised frame_clock and stim_times in reference frame
+       of that clock
+    
+    '''
+ 
+    if frame_clock is None:
+        frame_clock = paq_data(paq, 'frame_clock', threshold_ttl=True)
+        stim_times = paq_data(paq, stim_chan_name, threshold_ttl=True)
 
-    frame_clock = paq_data(paq, 'frame_clock', threshold_ttl=True)
-    stim_times = paq_data(paq, stim_chan_name, threshold_ttl=True)
-
-    stim_times = [stim for stim in stim_times if stim < max(frame_clock)]
+    stim_times = [stim for stim in stim_times if stim < np.nanmax(frame_clock)]
 
     frames = []
 
@@ -206,7 +214,7 @@ def stim_start_frame(paq, stim_chan_name):
                      if sample - stim > 0)
         frames.append(frame)
 
-    return(frames)
+    return np.array(frames)
 
 
 def myround(x, base=5):
@@ -302,6 +310,8 @@ def flu_splitter(flu, clock, t_starts, pre_frames, post_frames):
        returns 
        trial_flu -- trial by trial array 
                     [num_cells x trial frames x num_trials]
+       imaging_trial -- list of booleans of len num_trials,
+                        was the trial imaged? 
 
        n.b. clock and t_start must have same units and
             reference frame (see rsync_aligner.py
@@ -338,5 +348,27 @@ def flu_splitter(flu, clock, t_starts, pre_frames, post_frames):
 
     assert trial_flu.shape[2] == sum(imaging_trial)
 
-    return trial_flu
+    return trial_flu, imaging_trial
+
+
+def closest_frame_before(clock, t):
+    ''' returns the idx of the frame immediately preceeding 
+        the time t. Frame clock must be digitised and expressed
+        in the same reference frame as t
+        '''
+    subbed = np.array(clock) - t
+    return np.where(subbed < 0, subbed, -np.inf).argmax()
+
+def raster_plot(arr, y_pos = 1, color=np.random.rand(3,), alpha=1,
+                marker='.', markersize=12):
+
+    plt.plot(arr, np.ones(len(arr)) * y_pos, marker,
+            color=color, alpha=alpha, markersize=markersize)
+            
+
+
+
+
+
+
 
