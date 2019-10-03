@@ -105,10 +105,11 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff = 0.7):
         return neuropil_corrected[is_cells, :], spks, stat
 
 
-def correct_s2p_combined(s2p_path):
+def correct_s2p_combined(s2p_path, n_planes):
 
     len_count = 0 
-    for i in range(3):
+    for i in range(n_planes):
+
         iscell = np.load(os.path.join(s2p_path, 'plane{}'.format(i), 'iscell.npy'))
         if i == 0: 
             allcells = iscell
@@ -359,7 +360,8 @@ def closest_frame_before(clock, t):
     subbed = np.array(clock) - t
     return np.where(subbed < 0, subbed, -np.inf).argmax()
 
-def raster_plot(arr, y_pos = 1, color=np.random.rand(3,), alpha=1,
+
+def raster_plot(arr, y_pos=1, color=np.random.rand(3,), alpha=1,
                 marker='.', markersize=12):
 
     plt.plot(arr, np.ones(len(arr)) * y_pos, marker,
