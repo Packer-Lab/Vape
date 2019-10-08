@@ -190,6 +190,65 @@ def paq_data(paq, chan_name, threshold_ttl=False, plot=False):
     return data
 
 
+def stim_start_frame_mat(stim_times, frames_ms, fs=5):
+
+    ''' function to replace stim_start_frames
+        Inputs:
+        stim_times -- times that stim occured (same reference frame
+                      as frames_ms
+        frames_ms -- matrix of cell frame times [num_cells x num_frames]
+        fs -- frame rate of the imaging for an inidividual plane (frames/second)
+        Returns:
+        stim_idxs -- matrix of frame indexes that stim occured on for each cell
+                     [num_trials x num_cells]
+
+        '''
+    
+    # get rid of stims that occur outside the frame clock
+    max_frame = np.nanmax(frames_ms)
+    min_frame = np.nanmin(frames_ms)
+    stim_times = [stim for stim in stim_times if stim < max_frame]
+    stim_times = [stim for stim in stim_times if stim > min_frame]
+
+    ifi_ms = 1/fs * 1000 # inter-frame-interval in ms
+
+    for i, stim_time in enumerate(stim_times):
+
+        # index of closest frame time to each stim for each cell
+        stim_idx = np.apply_along_axis(lambda arr: np.searchsorted(arr, stim_time), 
+                                       axis = 1, arr=frames_ms)  
+        # times of the indexes
+        vals = frames_ms[range(len(stim_idx)), stim_idx]
+
+        # if the closest frame is after the stim, move one back
+        ahead_idx = np.where(vals > stim_time)[0]
+        stim_idx[ahead_idx] = stim_idx[ahead_idx] - 1
+        # times of the indexes
+        vals = frames_ms[range(len(stim_idx)), stim_idx]
+
+
+        # if there are nans in the frames_ms row then this stim was likely
+        # not imaged. If the stim is > inter-frame_interval from a 
+        # frame then discount this stim (currently only checking this 
+        # on the first cell
+        if np.isnan(vals).any() or abs(stim_time - vals[0]) > ifi_ms:
+            stim_idx = np.full(stim_idx.shape, np.nan)    
+        else:
+            print('val is {}'.format(vals[0]))
+            print('stim_time is {}'.format(stim_time))
+            print('stim_idx is {}'.format(stim_idx[0]))
+         
+            vals2 = frames_ms[range(len(stim_idx)), stim_idx]
+            print('val2 is {}\n'.format(vals2[0]))
+            
+        if i == 0:
+            stim_idxs = stim_idx
+        else:
+            stim_idxs = np.vstack((stim_idxs, stim_idx))
+    
+    return np.transpose(stim_idxs)
+
+
 def stim_start_frame(paq=None, stim_chan_name=None, frame_clock=None, 
                      stim_times=None):
 
@@ -228,15 +287,15 @@ def myround(x, base=5):
 
 def tseries_finder(tseries_lens, frame_clock, paq_rate=20000):
 
-    '''Finds chunks of frame clock that correspond to the tseries in tseries lens
+    ''' Finds chunks of frame clock that correspond to the tseries in tseries lens
 
-       tseries_lens -- list of the number of frames each tseries you want to find 
+        tseries_lens -- list of the number of frames each tseries you want to find 
                        contains
-       frame_clock  -- thresholded times each frame recorded in paqio occured
-       
-       paq_rate     -- input sampling rate of paqio
+        frame_clock  -- thresholded times each frame recorded in paqio occured
 
-       '''
+        paq_rate     -- input sampling rate of paqio
+
+        '''
 
     # frame clock recorded in paqio, includes TTLs from cliking 'live' and foxy extras 
     clock = frame_clock / paq_rate 
@@ -359,6 +418,61 @@ def closest_frame_before(clock, t):
         '''
     subbed = np.array(clock) - t
     return np.where(subbed < 0, subbed, -np.inf).argmax()
+
+
+def test_responsive(flu, frame_clock, stim_times, pre_frames = 10, post_frames = 10, offset=0):
+
+    ''' Tests if cells in a fluoresence array are significantly responsive to a stimulus
+
+        Inputs:
+        flu -- fluoresence matrix [n_cells x n_frames] likely dfof from suite2p
+        frame_clock -- timing of the frames, must be digitised and in same 
+                       reference frame as stim_times
+        stim_times -- times that stims to test responsiveness on occured, must be 
+                      digitised and in same reference frame as frame_clock
+        pre_frames -- the number of frames before the stimulus occured to baseline with
+        post_frames -- the number of frames after stimulus to test differnece compared
+                       to baseline
+        offset -- the number of frames to offset post_frames from the stimulus, so don't
+                  take into account e.g. stimulus artifact
+
+        Returns:
+        pre -- matrix of fluorescence values in the pre_frames period [n_cells x n_frames]
+        post -- matrix of fluorescence values in the post_frames period [n_cells x n_frames]
+        pvals -- vector of pvalues from the significance test [n_cells]
+
+        '''
+
+    n_frames = flu.shape[1]
+
+    pre_idx = np.repeat(False, n_frames)
+    post_idx = np.repeat(False, n_frames)
+
+    # keep track of the previous stim frame to warn against overlap
+    prev_frame = 0
+                      
+    for i, stim_time in enumerate(stim_times):
+
+        stim_frame = closest_frame_before(frame_clock, stim_time) 
+
+        if stim_frame-pre_frames <= 0 or stim_frame+post_frames+offset >= n_frames:
+            continue
+        elif stim_frame - pre_frames <= prev_frame:
+            print('WARNING: STA for stim number {} overlaps with the '
+                  'previous stim pre and post arrays can not be '
+                  'reshaped to trial by trial'.format(i))
+                   
+        prev_frame = stim_frame
+              
+        pre_idx[stim_frame-pre_frames : stim_frame] = True
+        post_idx[stim_frame+offset : stim_frame+post_frames+offset] = True
+        
+    pre = flu[:, pre_idx]
+    post = flu[:, post_idx]
+
+    _, pvals = stats.ttest_ind(pre, post, axis=1)
+
+    return pre, post, pvals       
 
 
 def raster_plot(arr, y_pos=1, color=np.random.rand(3,), alpha=1,

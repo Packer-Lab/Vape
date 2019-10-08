@@ -389,7 +389,7 @@ class BlimpImport(OptoStim2p):
 
         try:
             self.aligner = Rsync_aligner(pulse_times_A=self.rsync, pulse_times_B=self.paq_rsync,
-                                        units_B=1000/self.paq_rate, chunk_size=6, plot=False, raise_exception=True)
+                                        units_B=1000/self.paq_rate, chunk_size=6, plot=True, raise_exception=True)
             self.paq_correct = True
             print('pycontrol {} rsync successfully matched to paq {}'.format(basename(self.prereward_path), basename(self.paq_path)))
         except Exception as e:
@@ -404,6 +404,7 @@ class BlimpImport(OptoStim2p):
 
         
     def process_prereward(self, raise_error):
+
         ''' process the prereward txt file '''
 
         prereward_session = Session(self.prereward_path) 
@@ -423,7 +424,7 @@ class BlimpImport(OptoStim2p):
         
         self.both_aligner =  Rsync_aligner(pulse_times_A = np.hstack((self.pre_rsync, self.rsync)), 
                                            pulse_times_B = self.paq_rsync, units_B = 1000/self.paq_rate,
-                                           chunk_size=6, plot=False, raise_exception=True)
+                                           chunk_size=3, plot=False, raise_exception=True)
 
 
 

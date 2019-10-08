@@ -112,7 +112,7 @@ class Rsync_aligner():
             plt.ylabel('# chunks')
             plt.subplot2grid((3,3),(0,2),rowspan=1,colspan=1)
             timing_errors = np.diff(cor_times_A) - np.diff(pulse_times_B)
-            plt.hist(timing_errors[~np.isnan(timing_errors)],100)
+            plt.hist(timing_errors[~np.isnan(timing_errors)])
             plt.yscale('log', nonposy='clip')
             plt.xlabel('Inter-pulse interval\ndiscrepancy (ms)')
             plt.ylabel('# pulses')

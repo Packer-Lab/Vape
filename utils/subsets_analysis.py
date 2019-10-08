@@ -43,9 +43,11 @@ class Subsets():
 
         for i, info in enumerate(self.trial_info):
             if 'Nogo Trial' in info:
-                continue
+                trial_subsets.append(0)
+                subsets_paths.append('')
             elif 'all_cells_stimulated' in info:
                 trial_subsets.append(150)
+                subsets_paths.append('')
             elif 'Subset cells experiment' in info:
                 trial_subset = int(re.search('(?<=stimulating )(.*)(?= cells)', info).group(0))
                 trial_subsets.append(trial_subset)

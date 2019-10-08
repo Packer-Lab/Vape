@@ -11,6 +11,7 @@ import re
 import tifffile
 import glob
 import ntpath
+import marshal
 
 ''' This should maybe become a class '''
 
@@ -91,6 +92,7 @@ def preprocess_flu(run):
     combined_path = os.path.join(run.s2p_path, 'combined')
 
     flu, spks, stat = utils.s2p_loader(combined_path)
+    run.flu_raw = flu
     flu = utils.dfof2(flu)
 
     num_planes = run.num_planes # the lengths of the actual tseries
@@ -102,6 +104,16 @@ def preprocess_flu(run):
         print('All tseries chunks found in frame clock')
     else:
         print('WARNING: Could not find all tseries chunks in frame clock, check this')
+        print('Total number of frames detected in clock is {}'.format(len(paqio_frames)))
+        print('These are the lengths of the tseries from spreadsheet {}'.format(tseries_lens))
+        print('The total length of the tseries spreasheets is {}'.format(sum(tseries_lens)))
+        missing_frames = sum(tseries_lens) - len(paqio_frames)
+        print('The missing chunk is {} long'.format(missing_frames))
+        try:
+            print('A single tseries in the spreadsheet list is missing, '
+                  'number {}'.format(tseries_lens.index(missing_frames) + 1))
+        except ValueError:
+            print('Missing chunk cannot be attributed to a single tseries')
 
     if flu.shape[1] * num_planes >= len(paqio_frames) and \
        flu.shape[1] * num_planes <= len(paqio_frames) + num_planes:
@@ -110,6 +122,7 @@ def preprocess_flu(run):
         print('WARNING: Fluoresence matrix does not match frame clock shape, check this')
 
     # convert paqio recorded frames to pycontrol ms
+    print('WARNING USING main aligner')
     ms_vector = run.both_aligner.B_to_A(paqio_frames) # flat list of plane times
 
     # which plane is each cell in
@@ -144,6 +157,7 @@ def main(mouse_id, run_number, pkl_path,
     
     if run is None:
         return
+
 
     # flatten out the tseries path lists if it is nested
     if any(isinstance(i, list) for i in run.tseries_paths):
