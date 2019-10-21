@@ -119,7 +119,6 @@ class Subsets():
 
     @property
     def subsets_dprime(self):
-        
            
         # assert len([t for t in self.trial_type if t== 'go']) == len(self.trial_subsets) == len(self.go_outcome)
         
@@ -128,7 +127,6 @@ class Subsets():
 
         for sub in self.subsets:
             subset_idx = np.where(self.trial_subsets == sub)[0]
-            print(len(subset_idx))
             subset_outcome.append(sum(self.go_outcome[subset_idx]) / len(subset_idx))
             
         subsets_dprime = [d_prime(outcome, fp_rate) for outcome in subset_outcome]

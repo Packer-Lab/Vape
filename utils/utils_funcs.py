@@ -1,10 +1,12 @@
 import numpy as np
+import json
 import tifffile as tf
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import csv
 import math
+import copy
 
 # global plotting params
 params = {'legend.fontsize': 'x-large',
@@ -190,7 +192,7 @@ def paq_data(paq, chan_name, threshold_ttl=False, plot=False):
     return data
 
 
-def stim_start_frame_mat(stim_times, frames_ms, fs=5):
+def stim_start_frame_mat(stim_times, frames_ms, fs=5, debug_print=False):
 
     ''' function to replace stim_start_frames
         Inputs:
@@ -198,54 +200,67 @@ def stim_start_frame_mat(stim_times, frames_ms, fs=5):
                       as frames_ms
         frames_ms -- matrix of cell frame times [num_cells x num_frames]
         fs -- frame rate of the imaging for an inidividual plane (frames/second)
+        debug_print -- whether to print useful debugging statment about each
+                       stim and associated frame time
         Returns:
         stim_idxs -- matrix of frame indexes that stim occured on for each cell
                      [num_trials x num_cells]
 
         '''
     
+
+    # The substituion with -1 causes an inplace mutation of the start_times variable
+    # in the run objects, copy to avoid this
+    stim_times_copy = copy.deepcopy(stim_times)
+
     # get rid of stims that occur outside the frame clock
     max_frame = np.nanmax(frames_ms)
     min_frame = np.nanmin(frames_ms)
-    stim_times = [stim for stim in stim_times if stim < max_frame]
-    stim_times = [stim for stim in stim_times if stim > min_frame]
+    keep_idx = np.repeat(False, len(stim_times_copy))
+    keep_idx[np.where((stim_times_copy < max_frame) & (stim_times_copy > min_frame))[0]] = True
+    stim_times_copy[~keep_idx] = -1
 
     ifi_ms = 1/fs * 1000 # inter-frame-interval in ms
+    arg_sorted = np.argsort(frames_ms, axis=1)
+    n_cells = frames_ms.shape[0]
 
-    for i, stim_time in enumerate(stim_times):
+    for i, stim_time in enumerate(stim_times_copy):
 
-        # index of closest frame time to each stim for each cell
-        stim_idx = np.apply_along_axis(lambda arr: np.searchsorted(arr, stim_time), 
-                                       axis = 1, arr=frames_ms)  
+        closest_finder = lambda arr, sorter: np.searchsorted(arr, stim_time, sorter=sorter)
+        arg_idx = [closest_finder(frames_ms[i,:], arg_sorted[i,:]) for i in range(n_cells)]
+        stim_idx = arg_sorted[np.arange(len(arg_idx)), arg_idx]
+
         # times of the indexes
-        vals = frames_ms[range(len(stim_idx)), stim_idx]
+        vals = frames_ms[np.arange(len(stim_idx)), stim_idx]
 
         # if the closest frame is after the stim, move one back
         ahead_idx = np.where(vals > stim_time)[0]
         stim_idx[ahead_idx] = stim_idx[ahead_idx] - 1
         # times of the indexes
-        vals = frames_ms[range(len(stim_idx)), stim_idx]
-
+        vals = frames_ms[np.arange(len(stim_idx)), stim_idx]
 
         # if there are nans in the frames_ms row then this stim was likely
         # not imaged. If the stim is > inter-frame_interval from a 
         # frame then discount this stim (currently only checking this 
         # on the first cell
-        if np.isnan(vals).any() or abs(stim_time - vals[0]) > ifi_ms:
+        if np.isnan(vals).any() or abs(stim_time - vals[0]) > ifi_ms or stim_time==-1:
             stim_idx = np.full(stim_idx.shape, np.nan)    
         else:
-            print('val is {}'.format(vals[0]))
-            print('stim_time is {}'.format(stim_time))
-            print('stim_idx is {}'.format(stim_idx[0]))
-         
+            if debug_print:
+                print('\nval is {}'.format(vals[0]))
+                print('stim_time is {}'.format(stim_time))
+                print('stim_idx is {}'.format(max(stim_idx)))
+
             vals2 = frames_ms[range(len(stim_idx)), stim_idx]
-            print('val2 is {}\n'.format(vals2[0]))
-            
+
+            if debug_print:
+                print('val2 is {}'.format(vals2[0]))
+
         if i == 0:
             stim_idxs = stim_idx
         else:
             stim_idxs = np.vstack((stim_idxs, stim_idx))
-    
+
     return np.transpose(stim_idxs)
 
 
@@ -293,7 +308,7 @@ def tseries_finder(tseries_lens, frame_clock, paq_rate=20000):
                        contains
         frame_clock  -- thresholded times each frame recorded in paqio occured
 
-        paq_rate     -- input sampling rate of paqio
+        ppaq_rate     -- input sampling rate of paqio
 
         '''
 
@@ -411,6 +426,69 @@ def flu_splitter(flu, clock, t_starts, pre_frames, post_frames):
     return trial_flu, imaging_trial
 
 
+def flu_splitter2(flu, stim_times, frames_ms, pre_frames=10, post_frames=30):
+
+    stim_idxs = stim_start_frame_mat(stim_times, frames_ms, debug_print=False)
+    
+    stim_idxs = stim_idxs[:,np.where((stim_idxs[0,:]-pre_frames>0) & 
+                         (stim_idxs[0,:] + post_frames < flu.shape[1]))[0]]
+
+    n_trials = stim_idxs.shape[1]
+    n_cells = frames_ms.shape[0]
+
+    for i, shift in enumerate(np.arange(-pre_frames,post_frames)):
+        if i == 0: 
+            trial_idx = stim_idxs + shift
+        else:
+            trial_idx = np.dstack((trial_idx, stim_idxs + shift))
+            
+    tot_frames = pre_frames + post_frames
+    trial_idx = trial_idx.reshape((n_cells, n_trials*tot_frames))
+    
+    flu_trials = []
+    for i, idxs in enumerate(trial_idx):
+        idxs = idxs[~np.isnan(idxs)].astype('int')
+        flu_trials.append(flu[i,idxs])
+
+    n_trials_valid = len(idxs)
+    flu_trials = np.array(flu_trials).reshape((n_cells, int(n_trials_valid/tot_frames), tot_frames))
+
+    return flu_trials
+
+
+def flu_splitter3(flu, stim_times, frames_ms, pre_frames=10, post_frames=30):
+
+    stim_idxs = stim_start_frame_mat(stim_times, frames_ms, debug_print=False)
+
+    # not 100% sure about this line, keep an eye
+    stim_idxs[:,np.where((stim_idxs[0,:]-pre_frames<=0) | 
+             (stim_idxs[0,:] + post_frames >= flu.shape[1]))[0]] = np.nan
+   
+    n_trials = stim_idxs.shape[1]
+    n_cells = frames_ms.shape[0]
+
+    for i, shift in enumerate(np.arange(-pre_frames,post_frames)):
+        if i == 0: 
+            trial_idx = stim_idxs + shift
+        else:
+            trial_idx = np.dstack((trial_idx, stim_idxs + shift))
+            
+    tot_frames = pre_frames + post_frames
+    trial_idx = trial_idx.reshape((n_cells, n_trials*tot_frames))
+
+    # flu_trials = np.repeat(np.nan, n_cells*n_trials*tot_frames)
+    # flu_trials = np.reshape(flu_trials, (n_cells, n_trials, tot_frames))
+    flu_trials = np.full_like(trial_idx, np.nan)
+    # iterate through each cell and add trial frames
+    for i, idxs in enumerate(trial_idx):
+        
+        non_nan = ~np.isnan(idxs)
+        idxs = idxs[~np.isnan(idxs)].astype('int')
+        flu_trials[i, non_nan] = flu[i, idxs]
+
+    flu_trials = np.reshape(flu_trials, (n_cells, n_trials, tot_frames))
+    return flu_trials
+
 def closest_frame_before(clock, t):
     ''' returns the idx of the frame immediately preceeding 
         the time t. Frame clock must be digitised and expressed
@@ -473,6 +551,13 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames = 10, post_frames =
     _, pvals = stats.ttest_ind(pre, post, axis=1)
 
     return pre, post, pvals       
+
+
+
+
+
+
+
 
 
 def raster_plot(arr, y_pos=1, color=np.random.rand(3,), alpha=1,

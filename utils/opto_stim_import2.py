@@ -99,8 +99,10 @@ class OptoStimBasic():
         for i, t_start in enumerate(self.trial_start):
 
             # arbitrary big number to prevent index error on last trial
-            if i == len(self.trial_start)-1: t_end = 10e100
-            else: t_end = self.trial_start[i+1]
+            if i == len(self.trial_start)-1:
+                t_end = 10e100
+            else:
+                t_end = self.trial_start[i+1]
 
             #find the licks occuring in each trial
             trial_idx = np.where((licks>=t_start) & (licks<=t_end))[0]
@@ -246,6 +248,7 @@ class OptoStim2p(OptoStimBasic):
 
         ts = np.sort(np.hstack((easy_start, test_start, nogo_start)))
         self.trial_start = self.test_import_and_slice(ts) 
+        # print(self.trial_start)
      
 
 class BlimpImport(OptoStim2p):
@@ -411,6 +414,7 @@ class BlimpImport(OptoStim2p):
         self.pre_rsync = prereward_session.times.get('rsync')
         self.pre_licks = prereward_session.times.get('lick_1')
         self.pre_reward = prereward_session.times.get('reward')
+
         try:
             self.prereward_aligner = Rsync_aligner(pulse_times_A=self.pre_rsync, pulse_times_B=self.paq_rsync,
                                     units_B=1000/self.paq_rate, chunk_size=6, plot=False, raise_exception=True)
@@ -424,9 +428,6 @@ class BlimpImport(OptoStim2p):
         
         self.both_aligner =  Rsync_aligner(pulse_times_A = np.hstack((self.pre_rsync, self.rsync)), 
                                            pulse_times_B = self.paq_rsync, units_B = 1000/self.paq_rate,
-                                           chunk_size=3, plot=False, raise_exception=True)
-
-
-
+                                           chunk_size=6, plot=False, raise_exception=True)
 
 

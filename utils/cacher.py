@@ -2,6 +2,7 @@ import sys
 import os
 import numpy as np
 import pickle
+import json
 from opto_stim_import2 import BlimpImport, OptoStim2p
 import suite2p
 from suite2p.run_s2p import run_s2p
@@ -121,31 +122,39 @@ def preprocess_flu(run):
     else:
         print('WARNING: Fluoresence matrix does not match frame clock shape, check this')
 
-    # convert paqio recorded frames to pycontrol ms
-    print('WARNING USING main aligner')
-    ms_vector = run.both_aligner.B_to_A(paqio_frames) # flat list of plane times
-
     # which plane is each cell in
     cell_plane = np.array([s['iplane'] for s in stat])
 
-    # matrix of frame times in ms for each fluorescent value in the flu matrix
-    frames_ms = np.empty(flu.shape)
-    frames_ms.fill(np.nan)
-
-    # mark each frame with a time in ms based on its plane
-    for plane in range(num_planes):
-        frame_times = ms_vector[plane::num_planes]
-        plane_idx = np.where(cell_plane==plane)[0]
-        frames_ms[plane_idx, 0:len(frame_times)] = frame_times
+    run.frames_ms = build_frames_ms(run, cell_plane, paqio_frames, aligner=run.aligner)
+    run.frames_ms_pre = build_frames_ms(run, cell_plane, paqio_frames, aligner=run.prereward_aligner)
 
     # add to the run object
     run.flu = flu
     run.spks = spks
     run.stat = stat
-    run.frames_ms = frames_ms
 
     return run
 
+def build_frames_ms(run, cell_plane, paqio_frames, aligner):
+
+    ''' Builds frames_ms matrix (see preprocess_flu)
+        aligner -- rsync object from rsync_aligner
+   
+        '''
+    # convert paqio recorded frames to pycontrol ms
+    ms_vector = aligner.B_to_A(paqio_frames) # flat list of plane times
+    
+    # matrix of frame times in ms for each fluorescent value in the flu matrix
+    frames_ms = np.empty(run.flu_raw.shape)
+    frames_ms.fill(np.nan)
+ 
+    # mark each frame with a time in ms based on its plane
+    for plane in range(run.num_planes):
+        frame_times = ms_vector[plane::run.num_planes]
+        plane_idx = np.where(cell_plane==plane)[0]
+        frames_ms[plane_idx, 0:len(frame_times)] = frame_times
+
+    return frames_ms
 
 def main(mouse_id, run_number, pkl_path,
          do_s2p=False, reprocess=True, 
@@ -157,7 +166,6 @@ def main(mouse_id, run_number, pkl_path,
     
     if run is None:
         return
-
 
     # flatten out the tseries path lists if it is nested
     if any(isinstance(i, list) for i in run.tseries_paths):
