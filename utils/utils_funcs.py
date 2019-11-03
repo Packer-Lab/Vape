@@ -207,7 +207,6 @@ def stim_start_frame_mat(stim_times, frames_ms, fs=5, debug_print=False):
                      [num_trials x num_cells]
 
         '''
-    
 
     # The substituion with -1 causes an inplace mutation of the start_times variable
     # in the run objects, copy to avoid this
@@ -489,6 +488,7 @@ def flu_splitter3(flu, stim_times, frames_ms, pre_frames=10, post_frames=30):
     flu_trials = np.reshape(flu_trials, (n_cells, n_trials, tot_frames))
     return flu_trials
 
+
 def closest_frame_before(clock, t):
     ''' returns the idx of the frame immediately preceeding 
         the time t. Frame clock must be digitised and expressed
@@ -553,11 +553,122 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames = 10, post_frames =
     return pre, post, pvals       
 
 
+def build_flu_array(run, stim_times, pre_frames=10, post_frames=50, 
+                    is_prereward=False):
+    
+    ''' converts [n_cells x n_frames] matrix to trial by trial array
+        [n_cells x n_trials x pre_frames+post_frames]
+
+        Inputs:
+        run -- BlimpImport object with attributes flu and frames_ms
+        stim_times -- times of trial start stims, should be same
+                      reference frame as frames_ms
+        pre_frames -- number of frames before stim to include in
+                      trial
+        post_frames -- number of frames after stim to include 
+                       in trial
+
+        Returns:
+        flu_array -- array [n_cells x n_trials x pre_frames+post_frames]
+
+        '''
+
+    
+    flu = run.flu
+    
+    if is_prereward:
+        frames_ms = run.frames_ms_pre
+    else:
+        frames_ms = run.frames_ms
+        
+#     # split flu matrix into trials based on stim time
+    flu_array = flu_splitter3(flu, stim_times, frames_ms,
+                                    pre_frames=pre_frames, post_frames=post_frames)
+    
+    return flu_array
 
 
+def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=None,
+             plot=False, fs=5):
+
+    ''' Averages list of trial by trial fluoresence arrays and can visualise results
+        
+        Inputs:
+        array_list -- list of tbt fluoresence arrays
+        pre_frames -- number of frames before stim to include in
+                      trial
+        post_frames -- number of frames after stim to include 
+                       in trial
+        offset -- number of frames to offset post_frames to avoid artifacts
+        trial_filter -- list of trial indexs to include 
+        plot -- whether to plot result
+        fs -- frame rate / plane
+
+        Returns:
+        session_average -- mean array [n_sessions x pre_frames+post_frames]
+        scaled_average -- same as session average but all traces start at dfof = 0
+        grand_average -- average across all sessions [pre_frames + post_frames]
+        cell_average -- list with length n_sessions contains arrays 
+                        [n_cells x pre_frames+post_frames]
+
+        '''
+    
+    if trial_filter:
+        assert len(trial_filter) == len(array_list)
+        array_list = [arr[:,filt,:] for arr, filt in zip(array_list, trial_filter)]
+
+    n_sessions = len(array_list)
+    
+    cell_average = [np.mean(k, 1) for k in array_list] 
+    
+    session_average = np.array([np.mean(np.mean(k, 0), 0) for k in array_list])  
+
+    scaled_average = np.array([session_average[i,:] - session_average[i,0] 
+                               for i in range(n_sessions)])
+    
+    grand_average = np.mean(scaled_average, 0)
+       
+    if plot:        
+        x_axis = range(len(grand_average))
+        plt.plot(x_axis, grand_average)
+        plt.plot(x_axis[0:pre_frames], grand_average[0:pre_frames], color='red')
+        plt.plot(x_axis[pre_frames+offset:pre_frames+offset+(post_frames-offset)],
+                 grand_average[pre_frames+offset:pre_frames+offset+(post_frames-offset)], color='red')
+        for s in scaled_average:
+            plt.plot(x_axis, s, alpha=0.2, color='grey')
+
+        plt.ylabel(r'$\Delta $F/F')
+        plt.xlabel('Time (Seconds)')
+        plt.axvline(x=pre_frames-1, ls='--', color='red')
+   
+    return session_average, scaled_average, grand_average, cell_average
 
 
+def lick_binner(run):
+    
+    ''' makes new easytest binned lick variable in run object '''
 
+    licks = run.session.times.get('lick_1')
+  
+    binned_licks = []
+
+    for i, t_start in enumerate(run.trial_start):
+        if i == len(run.trial_start) - 1:
+            t_end = np.inf
+        else:
+            t_end = run.trial_start[i+1]
+
+        trial_idx = np.where((licks>=t_start) & (licks<=t_end))[0]
+        
+        trial_licks = licks[trial_idx] - t_start
+
+        binned_licks.append(trial_licks)
+        
+    run.licks = licks
+    # attribute already exists called 'binned_licks' and cannot overwrite it
+    run.binned_licks_easytest = binned_licks
+    
+    return run
 
 
 def raster_plot(arr, y_pos=1, color=np.random.rand(3,), alpha=1,
@@ -566,10 +677,4 @@ def raster_plot(arr, y_pos=1, color=np.random.rand(3,), alpha=1,
     plt.plot(arr, np.ones(len(arr)) * y_pos, marker,
             color=color, alpha=alpha, markersize=markersize)
             
-
-
-
-
-
-
 
