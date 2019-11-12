@@ -92,8 +92,10 @@ def preprocess_flu(run):
     utils.correct_s2p_combined(run.s2p_path, run.num_planes)
     combined_path = os.path.join(run.s2p_path, 'combined')
 
+    flu_raw, _, _ = utils.s2p_loader(combined_path, subtract_neuropil=False)
+    run.flu_raw = flu_raw
+
     flu, spks, stat = utils.s2p_loader(combined_path)
-    run.flu_raw = flu
     flu = utils.dfof2(flu)
 
     num_planes = run.num_planes # the lengths of the actual tseries
