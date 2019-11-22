@@ -325,9 +325,18 @@ class interarealAnalysis():
         for elem in root:
             if elem.get('Duration'):
                 single_stim_dur = float(elem.get('Duration'))
+                spiral_size = float(elem.get('SpiralSize'))
                 print('Single stim dur (ms):', elem.get('Duration'))
                 break
-
+        
+        for elem in root:
+            if elem.get('SpiralSize'):
+                spiral_size = float(elem.get('SpiralSize'))
+                spiral_size = (spiral_size + 0.005155) / 0.005269 # hard-coded size of spiral from MATLAB code
+                print('Spiral size (um):', elem.get('SpiralSize'))
+                break
+        
+        self.spiral_size = int(spiral_size)
         self.single_stim_dur = single_stim_dur
 
     def paqProcessing(self):
