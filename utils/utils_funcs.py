@@ -93,17 +93,19 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
     for i, s in enumerate(stat):
         s['original_index'] = i
 
+    all_cells = all_cells[is_cells, :]
+    neuropil = neuropil[is_cells, :]
+    spks = spks[is_cells, :]
     stat = stat[is_cells]
 
-    spks = spks[is_cells, :]
 
     if not subtract_neuropil:
-        return all_cells[is_cells, :],  spks, stat
+        return all_cells, spks, stat
 
     else:
         print('Subtracting neuropil with a coefficient of {}'.format(neuropil_coeff))
         neuropil_corrected = all_cells - neuropil * neuropil_coeff
-        return neuropil_corrected[is_cells, :], spks, stat
+        return neuropil_corrected, spks, stat
 
 
 def correct_s2p_combined(s2p_path, n_planes):
@@ -551,6 +553,7 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames=10, post_frames=10,
 
 def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
                     is_prereward=False):
+
     ''' converts [n_cells x n_frames] matrix to trial by trial array
         [n_cells x n_trials x pre_frames+post_frames]
 
@@ -575,7 +578,7 @@ def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
     else:
         frames_ms = run.frames_ms
 
-#     # split flu matrix into trials based on stim time
+    # split flu matrix into trials based on stim time
     flu_array = flu_splitter3(flu, stim_times, frames_ms,
                               pre_frames=pre_frames, post_frames=post_frames)
 
@@ -613,14 +616,14 @@ def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=N
 
     n_sessions = len(array_list)
 
-    cell_average = [np.mean(k, 1) for k in array_list]
+    cell_average = [np.nanmean(k, 1) for k in array_list]
 
-    session_average = np.array([np.mean(np.mean(k, 0), 0) for k in array_list])
+    session_average = np.array([np.nanmean(np.nanmean(k, 0), 0) for k in array_list])
 
     scaled_average = np.array([session_average[i, :] - session_average[i, 0]
                                for i in range(n_sessions)])
 
-    grand_average = np.mean(scaled_average, 0)
+    grand_average = np.nanmean(scaled_average, 0)
 
     if plot:
         x_axis = range(len(grand_average))
@@ -628,7 +631,8 @@ def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=N
         plt.plot(x_axis[0:pre_frames],
                  grand_average[0:pre_frames], color='red')
         plt.plot(x_axis[pre_frames+offset:pre_frames+offset+(post_frames-offset)],
-                 grand_average[pre_frames+offset:pre_frames+offset+(post_frames-offset)], color='red')
+                 grand_average[pre_frames+offset:pre_frames+offset+(post_frames-offset)],
+                 color='red')
         for s in scaled_average:
             plt.plot(x_axis, s, alpha=0.2, color='grey')
 
@@ -677,15 +681,35 @@ def prepost_diff(array_list, pre_frames=10,
     session_average, _, _, cell_average = averager(
         array_list, pre_frames, post_frames)
 
-    post = np.mean(
+    post = np.nanmean(
         session_average[:, pre_frames+offset:pre_frames+offset+(post_frames-offset)], 1)
-    pre = np.mean(session_average[:, 0:pre_frames], 1)
+    pre = np.nanmean(session_average[:, 0:pre_frames], 1)
 
     return post - pre
 
 
 def raster_plot(arr, y_pos=1, color=np.random.rand(3,), alpha=1,
-                marker='.', markersize=12):
+                marker='.', markersize=12, label=None):
 
     plt.plot(arr, np.ones(len(arr)) * y_pos, marker,
-             color=color, alpha=alpha, markersize=markersize)
+             color=color, alpha=alpha, markersize=markersize,
+             label=label)
+
+
+def adamiser(string):
+    words = string.split(' ')
+    n_pleases = int(len(words) / 10)
+    
+    for please in range(n_pleases):
+        idx = randrange(len(words))
+        words.insert(idx, 'please')
+        
+    n_caps = int(len(words) / 3)
+    for cap in range(n_caps):
+        idx = randrange(len(words))
+        words[idx] = words[idx].upper()
+        
+    return ' '.join(words)
+
+
+
