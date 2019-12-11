@@ -552,7 +552,7 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames=10, post_frames=10,
 
 
 def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
-                    is_prereward=False):
+                    use_spks=False, is_prereward=False):
 
     ''' converts [n_cells x n_frames] matrix to trial by trial array
         [n_cells x n_trials x pre_frames+post_frames]
@@ -569,9 +569,12 @@ def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
         Returns:
         flu_array -- array [n_cells x n_trials x pre_frames+post_frames]
 
-        '''
+    '''
 
-    flu = run.flu
+    if use_spks:
+        flu = run.spks
+    else:
+        flu = run.flu
 
     if is_prereward:
         frames_ms = run.frames_ms_pre
@@ -587,6 +590,7 @@ def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
 
 def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=None,
              plot=False, fs=5):
+
     ''' Averages list of trial by trial fluoresence arrays and can visualise results
 
         Inputs:
