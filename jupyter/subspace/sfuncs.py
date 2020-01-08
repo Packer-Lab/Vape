@@ -1,5 +1,8 @@
 import numpy as np
-import utils.utils_funcs as utils
+try:  # added by Thijs for compatibility 
+    import utils.utils_funcs as utils
+except ModuleNotFoundError:
+    import utils_funcs as utils
 
 def stim_start_frame(paq, stim_chan_name):
 
