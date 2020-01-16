@@ -8,18 +8,20 @@ import pandas as pd
 import sys
 
 
+CRED_PATH = os.path.join(os.path.dirname(__file__), 'credentials.json')
+
 def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
 
-    """
-    Takes input of google sheets SPREADSHEET_ID and SHEET_NAME
-    returns gsheet object that can be read by gsheet2df into a pandas dataframe. This object can also be accessed directly.
-
-    This function is a slightly modified version of quickstart.py (https://developers.google.com/sheets/api/quickstart/python)
-    The user must follow Step 1 in this link to enable the google sheets API in their account and download credentials.json
-    to their working directory.
+    ''' Takes input of google sheets SPREADSHEET_ID and SHEET_NAME
+    returns gsheet object that can be read by gsheet2df into a pandas dataframe. 
+    This object can also be accessed directly.
+    This function is a slightly modified version of quickstart.py 
+    (https://developers.google.com/sheets/api/quickstart/python)
+    The user must follow Step 1 in this link to enable the google sheets API 
+    in their account and download credentials.json  to their working directory.
     JR
 
-    """
+    '''
     creds = None
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
     # The file token.pickle stores the user's access and refresh tokens, and is
@@ -33,9 +35,10 @@ def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                '/home/jamesrowland/Documents/Code/Vape/utils/credentials.json', SCOPES)
-            creds = flow.run_local_server()
+            flow = InstalledAppFlow.from_client_secrets_file(CRED_PATH,
+                                                             SCOPES)
+            # JR - this is needed to authenticate through ssh
+            creds = flow.run_console()
         # Save the credentials for the next run
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
@@ -51,21 +54,22 @@ def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
 
 
 def gsheet2df(SPREADSHEET_ID, HEADER_ROW, SHEET_NAME='Sheet1!A:F'):
-
     '''
     Imports the sheet defined in SPREADSHEET_ID as a pandas dataframe
     Inputs -
-    SPREADSHEET_ID: found in the spreadsheet URL https://docs.google.com/spreadsheets/d/SPREADSHEET_ID
+    SPREADSHEET_ID: found in the spreadsheet URL 
+                    https://docs.google.com/spreadsheets/d/SPREADSHEET_ID
     HEADER_ROW:     the row that contains the header - titles of the columns
-    SHEET_NAME:     the name of the sheet to import (defaults to Sheet1 the default sheet name in gdocs)
-
+    SHEET_NAME:     the name of the sheet to import (defaults to Sheet1 the 
+                    default sheet name in gdocs)
     Returns -
     df: a pandas dataframe
 
     Converts gsheet object from build_gsheet to a Pandas DataFrame.
-    Use of this function requires the user to follow the instructions in build_gsheet
-    This function is adapted from https://towardsdatascience.com/how-to-access-google-sheet-data-using-the-python-api-and-convert-to-pandas-dataframe-5ec020564f0e
-
+    Use of this function requires the user to follow the instructions 
+    in build_gsheet. This function is adapted from 
+    https://towardsdatascience.com/how-to-access-google-sheet-data-using-the-
+    python-api-and-convert-to-pandas-dataframe-5ec020564f0e
     empty cells are represented by ''
 
     '''
@@ -80,7 +84,7 @@ def gsheet2df(SPREADSHEET_ID, HEADER_ROW, SHEET_NAME='Sheet1!A:F'):
         print('no data found')
         return
 
-    #corrects for rows which end with blank cells
+    # corrects for rows which end with blank cells
     for i, row in enumerate(values):
         if len(row) < len(header):
             [row.append('') for i in range(len(header)-len(row))]
@@ -103,21 +107,21 @@ def gsheet2df(SPREADSHEET_ID, HEADER_ROW, SHEET_NAME='Sheet1!A:F'):
 
 
 def correct_behaviour_df(df, t_series_header='t-series name'):
-
     '''
     inputs the Optimstim Behaviour Metadata
     corrects blank rows that have been merged in gsheets and converts
     lists of t series names from newlines to python lists
 
     '''
-    #fix blank merged rows
-    for row,val in enumerate(df['Date']):
+    # fix blank merged rows
+    for row, val in enumerate(df['Date']):
 
-        if val: continue
+        if val:
+            continue
 
         if df.loc[row]['Run Number']:
             for col in df.columns.values[0:4]:
-                df.loc[row,col] = df.loc[row-1,col]
+                df.loc[row, col] = df.loc[row-1, col]
 
         else:
             df = df.drop(row, axis=0)
@@ -129,7 +133,7 @@ def correct_behaviour_df(df, t_series_header='t-series name'):
             if '\n' in val:
                 t_list = val.split('\n')
 
-                #get rid of blank strings
+                # get rid of blank strings
                 t_list = [t for t in t_list if t]
 
                 df[column_header][row] = t_list
@@ -138,38 +142,44 @@ def correct_behaviour_df(df, t_series_header='t-series name'):
 
 
 def path_finder(umbrella, *args,  is_folder=False):
-
     '''
     returns the path to the single item in the umbrella folder
     containing the string names in each arg
     is_folder = False if args is list of files
     is_folder = True if  args is list of folders
     '''
-    #list of bools, has the function found each argument?
-    #ensures two folders / files are not found
+    # list of bools, has the function found each argument?
+    # ensures two folders / files are not found
     found = [False] * len(args)
-    #the paths to the args
+    # the paths to the args
     paths = [None] * len(args)
+    print(args)
 
     if is_folder:
         for root, dirs, files in os.walk(umbrella):
             for folder in dirs:
-                for i,arg in enumerate(args):
+                for i, arg in enumerate(args):
                     if arg in folder:
-                        assert not found[i], 'found at least two paths for {}, search {} to find conflicts'.format(arg,umbrella) 
+                        print(os.path.join(root, folder))
+
+                        assert not found[i], 'found at least two paths for {},'\
+                                             'search {} to find conflicts'\
+                                             .format(arg, umbrella)
                         paths[i] = os.path.join(root, folder)
                         found[i] = True
 
     elif not is_folder:
         for root, dirs, files in os.walk(umbrella):
             for file in files:
-                for i,arg in enumerate(args):
+                for i, arg in enumerate(args):
                     if arg in file:
-                        assert not found[i], 'found at least two paths for {}, search {} to find conflicts'.format(arg,umbrella)
+                        assert not found[i], 'found at least two paths for {},'\
+                                             'search {} to find conflicts'\
+                                             .format(arg, umbrella)
                         paths[i] = os.path.join(root, file)
                         found[i] = True
 
-    for i,arg in enumerate(args):
+    for i, arg in enumerate(args):
         if not found[i]:
             raise ValueError('could not find path to {}'.format(arg))
 
@@ -179,38 +189,40 @@ def path_finder(umbrella, *args,  is_folder=False):
 #### slicing / indexing functions #####
 def split_df(df, col_id):
     '''slice whole dataframe by boolean value of col_id'''
-    idx = df.index[df[col_id]=='TRUE']
+    idx = df.index[df[col_id] == 'TRUE']
     return df.loc[idx, :]
+
 
 def df_bool(df, col_id):
     '''returns the rows of a pandas dataframe where col_id is TRUE'''
-    return df.index[df[col_id]=='TRUE']
+    return df.index[df[col_id] == 'TRUE']
+
 
 def df_col(df, col, idx='all'):
-
     '''returns the values in col in rows specified in idx'''
 
-    if idx=='all':
+    if idx == 'all':
         idx = range(len(df))
 
     try:
-        return [df.loc[idx,col] for idx in idx]
+        return [df.loc[idx, col] for idx in idx]
     except KeyError:
         print('Spreadsheet does not have column "{}"'.format(col))
         return None
 
+
 def path_conversion(path_list, packerstation_path):
-    
     '''converts local paths on 2p imaging computer to packerstation paths
-       only works with data arrangement as of 2019-03-27 will likely break in the future
-       
-       indeed, broken for vastly different paths (user, date, base folder etc.) in the same path_list 2019-05-24 (RL)
-       to fix: find the 'Data' string and if it is within the first p.split('\\') then it is Packer1 style,
+       only works with data arrangement as of 2019-03-27 will likely break
+       in the future indeed, broken for vastly different paths (user, date,
+       base folder etc.)In the same path_list 2019-05-24 (RL)
+       to fix: find the 'Data' string and if it is within the first 
+       p.split('\\') then it is Packer1 style,
        if in second p.split('\\') it is in PackerStation style
     '''
-    
+
     converted_paths = []
-    
+
     for p in path_list:
         if not p:
             raise Exception('ERROR: Path missing')
@@ -222,13 +234,15 @@ def path_conversion(path_list, packerstation_path):
             name = (p.split('\\')[1])
         else:
             # Could not recognise path style
-            raise Exception('ERROR: Could not recognise path style, make it Packer1 or PackerStation friendly')
-            
+            raise Exception(
+                'ERROR: Could not recognise path style, make it Packer1 '\
+                'or PackerStation friendly')
+
         date = p.split('\\')[3]
         local_path = os.path.join(packerstation_path, name, 'Data', date)
         converted_path = os.path.join(local_path, *p.split('\\')[4:])
-        converted_path = converted_path.replace('"', '') #get rid of weird quote marks
+        converted_path = converted_path.replace(
+            '"', '')  # get rid of weird quote marks
         converted_paths.append(converted_path)
-        
-    
+
     return converted_paths
