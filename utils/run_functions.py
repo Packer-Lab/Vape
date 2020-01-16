@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import math
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -7,7 +8,6 @@ from subsets_analysis import Subsets
 import utils_funcs as utils
 from scipy import signal
 import random
-
 ''' functions that operate on BlimpImport objects (runs) '''
 
 
@@ -20,6 +20,7 @@ def filter_unhealthy_cells(run, threshold=5):
     run.frames_ms = run.frames_ms[healthy, :]
     run.frames_ms_pre = run.frames_ms_pre[healthy, :]
     run.stat = run.stat[healthy]
+    run.spks = run.spks[healthy, :]
     return run
 
 
@@ -39,6 +40,7 @@ def select_s2(run):
     run.frames_ms = run.frames_ms[s2_cells, :]
     run.frames_ms_pre = run.frames_ms_pre[s2_cells, :]
     run.stat = run.stat[s2_cells]
+    run.spks = run.spks[s2_cells, :]
 
     return run
 
@@ -103,16 +105,20 @@ def filter_trials(run, good=True, window_size=5, plot=False):
     dp_interped = np.interp(x_coords, easy_idx, running_dp)
 
     if plot:
-        plt.plot(dp_interped)
+        plt.plot(dp_interped, label='Interpolated d-prime')
         plt.plot(np.linspace(0, len(dp_interped), len(
-            running_go)), running_go, color='red')
+            running_go)), running_go, color='red',
+            label='Running Hit Rate')
         plt.plot(np.linspace(0, len(dp_interped), len(
-            running_nogo)), running_nogo, color='green')
+            running_nogo)), running_nogo, color='green',
+            label='Running False positive rate')
+        plt.legend(fontsize=10)
+        plt.ylim((0, 2))
 
     if good:
         return np.where(dp_interped >= 1)[0]
     else:
-        return np.where(dp_interped < 0.1)[0]
+        return np.where(dp_interped < 0.5)[0]
 
 
 def get_spont_trials(run, pre_frames=5, post_frames=9, n_trials=10):
@@ -192,12 +198,12 @@ def subtract_kernal(flu_array, run, trials_to_sub='all',
                                              pre_frames+offset, post_frames-offset, True))
 
     # mean across trials [n_cells x pre_frames+post_frames]
-    mean_kernals = [np.mean(kernal, 1) for kernal in kernals]
+    mean_kernals = [np.nanmean(kernal, 1) for kernal in kernals]
     # type error with nans here means trials are misaligned
     offset_sub[trials_to_sub]
 
-    pre_post = np.mean(mean_kernals[0][:, pre_frames:post_frames],
-                       1) - np.mean(mean_kernals[0][:, 0:pre_frames], 1)
+    pre_post = np.nanmean(mean_kernals[0][:, pre_frames:post_frames],
+                          1) - np.nanmean(mean_kernals[0][:, 0:pre_frames], 1)
     cell_licky_idx = np.flip(np.argsort(pre_post))
 
     if plot:
@@ -205,11 +211,11 @@ def subtract_kernal(flu_array, run, trials_to_sub='all',
         x_axis = np.arange(pre_frames+post_frames)
         for i, cell in enumerate(cell_licky_idx[:12]):
             plt.subplot(3, 4, i+1)
-            plt.plot(x_axis, np.mean(
+            plt.plot(x_axis, np.nanmean(
                 flu_array[cell, :, :], 0), 'blue', label='Mean Hit Trials')
             plt.plot(x_axis, mean_kernals[0][cell, :],
                      'green', label='Lick Kernal')
-            plt.plot(x_axis, np.mean(
+            plt.plot(x_axis, np.nanmean(
                 flu_array[cell, :, :], 0) - mean_kernals[offset][cell, :], 'pink', label='Kernal subtracted')
             plt.xticks(x_axis)
         handles, labels = plt.gca().get_legend_handles_labels()
@@ -224,48 +230,93 @@ def subtract_kernal(flu_array, run, trials_to_sub='all',
     return flu_array, cell_licky_idx, pre_post
 
 
-def subsets_diff_plotter(runs, behaviour_list, pre_frames=5, post_frames=9, offset=4, good=True):
+def subsets_diff_plotter(runs, behaviour_list, pre_frames=5, post_frames=9,
+                         offset=4, good=True, is_spks=False):
 
     subset_sizes = np.unique(Subsets(runs[0]).trial_subsets)
 
     hit_diffs = []
     miss_diffs = []
 
+    # remove 0 and 150
+    subset_sizes = subset_sizes[1:-1]
+
     for i, sub in enumerate(subset_sizes):
 
-        if sub == 0 or sub == 150:
-            continue
-
-        hit_trials = [utils.intersect(np.where((run.outcome == 'hit') & (Subsets(run).trial_subsets == sub))[0],
+        hit_trials = [utils.intersect(np.where((run.outcome == 'hit')
+                                               & (Subsets(run).trial_subsets == sub))[0],
                                       filter_trials(run, good=good))
                       for run in runs]
 
-        miss_trials = [utils.intersect(np.where((run.outcome == 'miss') & (Subsets(run).trial_subsets == sub))[0],
+        miss_trials = [utils.intersect(np.where((run.outcome == 'miss')
+                                        & (Subsets(run).trial_subsets == sub))[0],
                                        filter_trials(run, good=good))
                        for run in runs]
 
-        hit_diff = utils.prepost_diff(behaviour_list, pre_frames=pre_frames, post_frames=post_frames,
-                                      offset=offset, filter_list=hit_trials)
+        hit_diff = utils.prepost_diff(behaviour_list, pre_frames=pre_frames,
+                                      post_frames=post_frames, offset=offset,
+                                      filter_list=hit_trials)
 
-        miss_diff = utils.prepost_diff(behaviour_list, pre_frames=pre_frames, post_frames=post_frames,
-                                       offset=offset, filter_list=miss_trials)
+        miss_diff = utils.prepost_diff(behaviour_list, pre_frames=pre_frames,
+                                       post_frames=post_frames, offset=offset,
+                                       filter_list=miss_trials)
 
-        if i == 1:
-            plt.bar(i-0.1, np.mean(hit_diff),
+        if i == 0:
+            plt.bar(i-0.1, np.nanmean(hit_diff),
                     color=sns.color_palette()[0], label='Hit Trials')
-            plt.bar(i, np.mean(miss_diff), color=sns.color_palette()
+            plt.bar(i, np.nanmean(miss_diff), color=sns.color_palette()
                     [6], label='Miss Trials')
         else:
-            plt.bar(i-0.1, np.mean(hit_diff), color=sns.color_palette()[0])
-            plt.bar(i, np.mean(miss_diff), color=sns.color_palette()[6])
+            plt.bar(i-0.1, np.nanmean(hit_diff), color=sns.color_palette()[0])
+            plt.bar(i, np.nanmean(miss_diff), color=sns.color_palette()[6])
 
         hit_diffs.append(hit_diff)
         miss_diffs.append(miss_diff)
 
     plt.legend()
-    plt.ylabel(r'$\Delta $F/F')
+
+    if is_spks:
+        plt.ylabel(r'Mean spks Jump Post-Pre')
+    else:
+        plt.ylabel('Mean $\Delta $F/F Jump Post-Pre')
+
     plt.xlabel('Number of cells stimulated')
     sns.despine()
     plt.xticks(range(len(subset_sizes)), subset_sizes)
 
     return np.array(hit_diffs), np.array(miss_diffs)
+
+
+def raw_data_plotter(run):
+
+    combined_path = os.path.join(run.s2p_path, 'combined')
+    neuropil = np.load(os.path.join(combined_path, 'Fneu.npy')) 
+
+    unit = 1
+    fig, ax1 = plt.subplots(figsize=(15, 10))
+
+    praw = ax1.plot(run.flu_raw[unit, :], label='Flu Raw',
+                    color=sns.color_palette()[0])
+    pn = ax1.plot(neuropil[unit, :], label='Neuropil',
+                  color=sns.color_palette()[1])
+    ds = ax1.plot(run.spks[unit, :], label='Deconvolved Spikes',
+                  color=sns.color_palette()[2])
+    ax1.set_xlim((4000, 5000))
+    ax1.set_ylim((-100, 3500))
+    ax1.set_ylabel('Raw Data')
+    ax1.legend(fontsize=10)
+
+    ax2 = ax1.twinx()
+    df = ax2.plot(run.flu[unit, :], 
+                  label='$\Delta $F/F Neuropil Subtracted',
+                  color=sns.color_palette()[4])
+    ax2.set_ylim((-2, 3.5))
+    ax2.set_xlim((5000, 7000))
+    ax2.set_ylabel('$\Delta $F/F')
+
+    lns = praw+pn+df+ds
+    labs = [l.get_label() for l in lns]
+    ax1.legend(lns, labs, loc=0)
+
+
+
