@@ -7,8 +7,8 @@ from google.auth.transport.requests import Request
 import pandas as pd
 import sys
 
-
-CRED_PATH = os.path.join(os.path.dirname(__file__), 'credentials.json')
+CRED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'credentials.json')
+TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'token.pickle')
 
 def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
 
@@ -27,8 +27,9 @@ def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
+
+    if os.path.exists(TOKEN_PATH):
+        with open(TOKEN_PATH, 'rb') as token:
             creds = pickle.load(token)
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
@@ -40,7 +41,7 @@ def build_gsheet(SPREADSHEET_ID, SHEET_NAME):
             # JR - this is needed to authenticate through ssh
             creds = flow.run_console()
         # Save the credentials for the next run
-        with open('token.pickle', 'wb') as token:
+        with open(TOKEN_PATH, 'wb') as token:
             pickle.dump(creds, token)
 
     service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
@@ -153,15 +154,12 @@ def path_finder(umbrella, *args,  is_folder=False):
     found = [False] * len(args)
     # the paths to the args
     paths = [None] * len(args)
-    print(args)
-
+    
     if is_folder:
         for root, dirs, files in os.walk(umbrella):
             for folder in dirs:
                 for i, arg in enumerate(args):
                     if arg in folder:
-                        print(os.path.join(root, folder))
-
                         assert not found[i], 'found at least two paths for {},'\
                                              'search {} to find conflicts'\
                                              .format(arg, umbrella)
@@ -178,7 +176,7 @@ def path_finder(umbrella, *args,  is_folder=False):
                                              .format(arg, umbrella)
                         paths[i] = os.path.join(root, file)
                         found[i] = True
-
+    
     for i, arg in enumerate(args):
         if not found[i]:
             raise ValueError('could not find path to {}'.format(arg))

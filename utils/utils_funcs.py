@@ -74,17 +74,17 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
         for file in files:
 
             if file == 'F.npy':
-                all_cells = np.load(os.path.join(root, file))
+                all_cells = np.load(os.path.join(root, file), allow_pickle=True)
             elif file == 'Fneu.npy':
-                neuropil = np.load(os.path.join(root, file))
+                neuropil = np.load(os.path.join(root, file), allow_pickle=True)
             elif file == 'iscell.npy':
-                is_cells = np.load(os.path.join(root, file))[:, 0]
+                is_cells = np.load(os.path.join(root, file), allow_pickle=True)[:, 0]
                 is_cells = np.ndarray.astype(is_cells, 'bool')
                 print('Loading {} traces labelled as cells'.format(sum(is_cells)))
             elif file == 'spks.npy':
-                spks = np.load(os.path.join(root, file))
+                spks = np.load(os.path.join(root, file), allow_pickle=True)
             elif file == 'stat.npy':
-                stat = np.load(os.path.join(root, file))
+                stat = np.load(os.path.join(root, file), allow_pickle=True)
                 found_stat = True
 
     if not found_stat:
@@ -113,8 +113,7 @@ def correct_s2p_combined(s2p_path, n_planes):
     len_count = 0
     for i in range(n_planes):
 
-        iscell = np.load(os.path.join(
-            s2p_path, 'plane{}'.format(i), 'iscell.npy'))
+        iscell = np.load(os.path.join(s2p_path, 'plane{}'.format(i), 'iscell.npy'), allow_pickle=True)
         if i == 0:
             allcells = iscell
         else:
@@ -124,7 +123,7 @@ def correct_s2p_combined(s2p_path, n_planes):
 
     combined_iscell = os.path.join(s2p_path, 'combined', 'iscell.npy')
 
-    ic = np.load(combined_iscell)
+    ic = np.load(combined_iscell, allow_pickle=True)
     assert ic.shape == allcells.shape
     assert len_count == len(ic)
 

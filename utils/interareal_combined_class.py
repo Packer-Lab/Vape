@@ -13,6 +13,7 @@ import csv
 import copy
 import re
 import pickle
+import ntpath
 
 from random import randint
 from scipy import stats
@@ -102,26 +103,26 @@ class experimentInfo():
         print('Umbrella folder:', umbrella)
 
         for i in for_processing.index:
-            tiff_path = os.path.basename(for_processing.loc[i, 'tiff_path'])
-            tiff_path = tiff_path.replace('"', '')
+            tiff_path = for_processing.loc[i, 'tiff_path'].replace('"', '')
+            tiff_path = ntpath.basename(tiff_path)
             tiff_path = path_finder(umbrella, tiff_path, is_folder=True)
-            tiffs_pstation.append(tiff_path[0]) # convert paths (from Packer1 or PackerStation) to local PackerStation paths
+            tiffs_pstation.append(tiff_path[0]) # convert paths (from Packer1 or PackerStation) to local QNAP paths
             
-            naparm_path = os.path.basename(for_processing.loc[i, 'naparm_path'])
+            naparm_path = for_processing.loc[i, 'naparm_path'].replace('"', '')
+            naparm_path = ntpath.basename(naparm_path)
             if naparm_path:
-                naparm_path = naparm_path.replace('"', '')
                 naparm_path = path_finder(umbrella, naparm_path, is_folder=True)
             else:
                 naparm_path = ['none']
-            naparms_pstation.append(naparm_path[0]) # convert paths (from Packer1 or PackerStation) to local PackerStation paths
+            naparms_pstation.append(naparm_path[0]) # convert paths (from Packer1 or PackerStation) to local QNAP paths
             
-            paq_path = os.path.basename(for_processing.loc[i, 'paq_path'])
+            paq_path = for_processing.loc[i, 'paq_path'].replace('"', '')
+            paq_path = ntpath.basename(paq_path)
             if paq_path:
-                paq_path = paq_path.replace('"', '')
                 paq_path = path_finder(umbrella, paq_path, is_folder=False)
             else:
                 paq_path = ['none']
-            paqs_pstation.append(paq_path[0]) # convert paths (from Packer1 or PackerStation) to local PackerStation paths
+            paqs_pstation.append(paq_path[0]) # convert paths (from Packer1 or PackerStation) to local QNAP paths
         
         tiffs_pstation = np.array(tiffs_pstation)
 
@@ -177,7 +178,7 @@ class experimentInfo():
 
         s2p_path = self.s2p_path
         ops_path = os.path.join(s2p_path, 'ops.npy')
-        ops = np.load(ops_path)
+        ops = np.load(ops_path, allow_pickle=True)
         ops = ops.item()
 
         frame_list = ops['frames_per_folder']
@@ -489,9 +490,9 @@ class interarealAnalysis():
 
         os.chdir(s2p_path)
 
-        stat = np.load('stat.npy')
-        ops = np.load('ops.npy').item()
-        iscell = np.load('iscell.npy')           
+        stat = np.load('stat.npy', allow_pickle=True)
+        ops = np.load('ops.npy', allow_pickle=True).item()
+        iscell = np.load('iscell.npy', allow_pickle=True)           
         
         im = np.zeros((ops['Ly'], ops['Lx']), dtype='uint16')
 
@@ -833,7 +834,7 @@ class interarealAnalysis():
             for plane in range(self.n_planes):
                 s2p_path = self.s2p_path
                 FminusFneu, _, stat = s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7)
-                ops = np.load(os.path.join(s2p_path,'ops.npy')).item()
+                ops = np.load(os.path.join(s2p_path,'ops.npy'), allow_pickle=True).item()
 
                 self.raw.append(FminusFneu)
                 self.mean_img.append(ops['meanImg'])
@@ -1283,12 +1284,11 @@ class interarealPlotting():
 
             plot_index += 1
 
-    def scatterProbResponse(self, to_mask=None):
+    def scatterProbResponse(self, save_path, to_mask=None):
         
         df = self.df
 
         grouped = df.groupby('sheet_name', sort=False)
-        # save_path = r'C:\Users\Robert Lees\Documents\PackerPostdoc\Lab meetings\2020-01-08_joint_data_presentation\Media'
 
         for name, group in grouped:
 
@@ -1336,9 +1336,9 @@ class interarealPlotting():
                 p = np.poly1d(z)
                 ax[2].plot(x[2],p(x[2]), 'k--', alpha=0.3)
 
-            # plt.savefig(os.path.join(save_path, 'prob_response_boxplot_' + name + '.svg'))
+            plt.savefig(os.path.join(save_path, 'prob_response_boxplot_' + name + '.svg'))
 
-    def staMovie(self, pkl_list=False):
+    def staMovie(self, output_dir, pkl_list=False):
         
         plane = 0
         obj_list = []
@@ -1351,10 +1351,10 @@ class interarealPlotting():
             with open(pkl_file, 'rb') as f:
                 exp_obj = pickle.load(f)
                 
-            # obj_list = [exp_obj.photostim_r, exp_obj.photostim_s]
+            obj_list = [exp_obj.photostim_r, exp_obj.photostim_s]
 
-            # if exp_obj.spont.n_frames > 0:
-            #     obj_list.append(exp_obj.spont)
+            if exp_obj.spont.n_frames > 0:
+                obj_list.append(exp_obj.spont)
 
             if exp_obj.whisker_stim.n_frames > 0:
                 obj_list.append(exp_obj.whisker_stim)
@@ -1392,7 +1392,6 @@ class interarealPlotting():
                 dff_stack = (df_stack/baseline_mean) * 100
                 dff_stack = dff_stack.astype('uint32')
 
-                output_dir = os.path.join(r'E:\S1S2\STA movies')
                 output_path = os.path.join(output_dir, file + '_plane' + str(plane) + '.tif')
 
                 tf.imwrite(output_path, dff_stack)
