@@ -113,7 +113,9 @@ def correct_s2p_combined(s2p_path, n_planes):
     len_count = 0
     for i in range(n_planes):
 
-        iscell = np.load(os.path.join(s2p_path, 'plane{}'.format(i), 'iscell.npy'), allow_pickle=True)
+        iscell = np.load(os.path.join(s2p_path, 'plane{}'.format(i), 
+                                     'iscell.npy'), allow_pickle=True)
+
         if i == 0:
             allcells = iscell
         else:
@@ -713,6 +715,5 @@ def adamiser(string):
         words[idx] = words[idx].upper()
         
     return ' '.join(words)
-
 
 

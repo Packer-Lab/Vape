@@ -177,6 +177,7 @@ def path_finder(umbrella, *args,  is_folder=False):
                         paths[i] = os.path.join(root, file)
                         found[i] = True
     
+    print(paths)
     for i, arg in enumerate(args):
         if not found[i]:
             raise ValueError('could not find path to {}'.format(arg))

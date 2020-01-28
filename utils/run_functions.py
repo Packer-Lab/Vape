@@ -287,12 +287,16 @@ def subsets_diff_plotter(runs, behaviour_list, pre_frames=5, post_frames=9,
     return np.array(hit_diffs), np.array(miss_diffs)
 
 
-def raw_data_plotter(run):
+def raw_data_plotter(run, unit=0, combined=True):
 
-    combined_path = os.path.join(run.s2p_path, 'combined')
-    neuropil = np.load(os.path.join(combined_path, 'Fneu.npy')) 
+    if combined:
+        s2p_path = os.path.join(run.s2p_path, 'combined')
+    else:
+        s2p_path = os.path.join(run.s2p_path, 'plane0')
+        
+    neuropil = np.load(os.path.join(s2p_path, 'Fneu.npy')) 
 
-    unit = 1
+    unit = unit
     fig, ax1 = plt.subplots(figsize=(15, 10))
 
     praw = ax1.plot(run.flu_raw[unit, :], label='Flu Raw',
@@ -301,7 +305,7 @@ def raw_data_plotter(run):
                   color=sns.color_palette()[1])
     ds = ax1.plot(run.spks[unit, :], label='Deconvolved Spikes',
                   color=sns.color_palette()[2])
-    ax1.set_xlim((4000, 5000))
+    # ax1.set_xlim((4000, 5000))
     ax1.set_ylim((-100, 3500))
     ax1.set_ylabel('Raw Data')
     ax1.legend(fontsize=10)
@@ -311,7 +315,7 @@ def raw_data_plotter(run):
                   label='$\Delta $F/F Neuropil Subtracted',
                   color=sns.color_palette()[4])
     ax2.set_ylim((-2, 3.5))
-    ax2.set_xlim((5000, 7000))
+    # ax2.set_xlim((5000, 7000))
     ax2.set_ylabel('$\Delta $F/F')
 
     lns = praw+pn+df+ds

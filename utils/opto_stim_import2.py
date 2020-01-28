@@ -29,7 +29,8 @@ class OptoStimBasic():
 
     def pl_times(self, str_):
         '''returns the time of all print lines with str_ in the line'''
-        return [float(line.split(' ')[0]) for line in self.print_lines if str_ in line]
+        return [float(line.split(' ')[0]) for line in 
+                self.print_lines if str_ in line]
 
     def _appender(self, str_, outcome):
         '''appends trial outcomes and their times to lists'''
@@ -56,14 +57,19 @@ class OptoStimBasic():
         self.trial_time = np.array(self.trial_time)[sort_idx]
         self.outcome = np.array(self.outcome)[sort_idx]
 
-        self.trial_time, self.outcome = OptoStimBasic._debounce(self.trial_time, self.outcome, 2000)
+        self.trial_time, self.outcome = OptoStimBasic._debounce(
+                                                       self.trial_time,
+                                                       self.outcome,
+                                                       2000
+                                                       )
         self.trial_time = self.test_import_and_slice(self.trial_time)
         self.outcome = self.test_import_and_slice(self.outcome)
 
     @classmethod
     def _debounce(cls, arr1, arr2, window):
         '''
-        function to debounce arrays based on the numeric values of arr1, used for example when the trial outcome is erroneously printed twice
+        function to debounce arrays based on the numeric values of arr1, 
+        used for example when the trial outcome is erroneously printed twice
         removes subsequent elements of an array that occur within a time window to the previous element
         '''
         for i,a in enumerate(arr1):
@@ -83,12 +89,14 @@ class OptoStimBasic():
 
     @property
     def trial_type(self):
-        trial_type = ['go' if t == 'miss' or t == 'hit' else 'nogo' for t in self.outcome]
+        trial_type = ['go' if t == 'miss' or t == 'hit' 
+                      else 'nogo' for t in self.outcome]
         return self.test_import_and_slice(trial_type)
 
     @property
     def online_dprime(self):
-        return [float(line.split(' ')[3]) for line in self.print_lines if 'd_prime is' in line]
+        return [float(line.split(' ')[3]) for line in self.print_lines 
+                if 'd_prime is' in line]
 
     @property
     def binned_licks(self):
@@ -137,12 +145,14 @@ class OptoStimBasic():
     
     def test_import_and_slice(self, list_):
         '''
-        test that import has been done correctly and slice to remove end trial if IndexError in task
-        tests that list_if of correct length and slices to only include full trial_start
+        test that import has been done correctly and slice to remove end 
+        trial if IndexError in task tests that list_if of correct length
+        and slices to only include full trial_start
         args = list to test for correct length and slice
         '''
 
-        len_test = lambda x : True if self.n_trials_complete <= x <= self.n_trials_complete + 1 else False
+        len_test = lambda x : True if self.n_trials_complete\
+                              <= x <= self.n_trials_complete + 1 else False
 
         assert len_test(len(list_)), 'error importing, list of wrong length'
 
@@ -162,9 +172,11 @@ class OptoStim1p(OptoStimBasic):
             '''gets the LED current on each trial'''
 
             if self.session.task_name == 'opto_stim':
-                LED_current = [float(line.split(' ')[4]) for line in self.print_lines if 'LED current is' in line and 'now' not in line]
+                LED_current = [float(line.split(' ')[4]) for line in self.print_lines 
+                               if 'LED current is' in line and 'now' not in line]
             elif self.session.task_name == 'opto_stim_psychometric':
-                LED_current =  [float(line.split(' ')[3]) for line in self.print_lines if 'LED_current is' in line]
+                LED_current =  [float(line.split(' ')[3]) for line in self.print_lines 
+                                if 'LED_current is' in line]
             else:
                 raise ValueError('task not recognised')
 
@@ -182,7 +194,8 @@ class OptoStim1p(OptoStimBasic):
                 if i == self.n_trials_complete-1: t_end = 10e100
                 else: t_end = self.trial_time[i+1]
 
-                is_autoreward = next((a for a in autoreward_times if a >= t_start and a < t_end), False)
+                is_autoreward = next((a for a in autoreward_times if 
+                                      a >= t_start and a < t_end), False)
                 if is_autoreward: self.autorewarded_trial.append(True)
                 else: self.autorewarded_trial.append(False)
 
@@ -190,9 +203,11 @@ class OptoStim1p(OptoStimBasic):
             
             time_autoswitch = self.pl_times('switching out of auto')
                 
-            ## find the trial number this happened by finding the index of the closest trial start time (+1)
+            ## find the trial number this happened by finding the index 
+            ## of the closest trial start time (+1)
             if time_autoswitch:
-                self.trial_autoswitch = np.abs(self.trial_time - time_autoswitch[0]).argmin() + 1
+                self.trial_autoswitch = np.abs(self.trial_time -
+                                               time_autoswitch[0]).argmin() + 1
             else:
                 self.trial_autoswitch = None
 
@@ -223,17 +238,27 @@ class OptoStim2p(OptoStimBasic):
         super().__init__(txt_path)
 
         #the line that triggers an SLM trial throuh blimp
-        _slm_trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial' in line]
-        _nogo_trigger_lines = [line for line in self.print_lines if 'Trigger NOGO trial' in line]
-        _alltrials_trigger_lines = [line for line in self.print_lines if 'Trigger SLM trial' in line or 'Trigger NOGO trial' in line]
+        _slm_trigger_lines = [line for line in self.print_lines 
+                              if 'Trigger SLM trial' in line]
+        _nogo_trigger_lines = [line for line in self.print_lines 
+                               if 'Trigger NOGO trial' in line]
+        _alltrials_trigger_lines = [line for line in self.print_lines 
+                                    if 'Trigger SLM trial' in line or 
+                                    'Trigger NOGO trial' in line]
+                                    
          
-        self.slm_barcode = [re.search('(?<=Barcode )(.*)', line).group(0) for line in _slm_trigger_lines]
-        self.slm_trial_number = [re.search('(?<=Number )(.*)(?= Barcode)', line).group(0) for line in _slm_trigger_lines]
+        self.slm_barcode = [re.search('(?<=Barcode )(.*)', line).group(0)
+                            for line in _slm_trigger_lines]
+        self.slm_trial_number = [re.search('(?<=Number )(.*)(?= Barcode)', line)
+                                 .group(0) for line in _slm_trigger_lines]
 
-        self.nogo_barcode = [re.search('(?<=Barcode )(.*)', line).group(0) for line in _nogo_trigger_lines]
-        self.nogo_trial_number = [re.search('(?<=Number )(.*)(?= Barcode)', line).group(0) for line in _nogo_trigger_lines]
+        self.nogo_barcode = [re.search('(?<=Barcode )(.*)', line).group(0) for 
+                             line in _nogo_trigger_lines]
+        self.nogo_trial_number = [re.search('(?<=Number )(.*)(?= Barcode)', line)
+                                  .group(0) for line in _nogo_trigger_lines]
 
-        self.alltrials_barcodes = [re.search('(?<=Barcode )(.*)', line).group(0) for line in _alltrials_trigger_lines]
+        self.alltrials_barcodes = [re.search('(?<=Barcode )(.*)', line).group(0)
+                                   for line in _alltrials_trigger_lines]
 
         assert len(self.slm_barcode) == self.trial_type.count('go')
         # necessary to analyse sessions without nogo blimping
@@ -255,7 +280,7 @@ class BlimpImport(OptoStim2p):
 
     #from the URL
     sheet_ID = '1GG5Y0yCEw_h5dMfHBnBRTh5NXgF6NqC_VVGfSpCHroc'
-    packerstation_path = '/home/jamesrowland/Documents/packerstation/jrowland/Data'
+    server_path = os.path.expanduser('~/mnt/qnap/Data')
 
     # the column headers of the spreadsheet 
     date_header = 'Date'
@@ -277,7 +302,8 @@ class BlimpImport(OptoStim2p):
 
         self.mouse_id = mouse_id
         _sheet_name = self.mouse_id + '!A1:ZZ69'
-        self.df = gsheet.gsheet2df(BlimpImport.sheet_ID, HEADER_ROW=2, SHEET_NAME=_sheet_name)
+        self.df = gsheet.gsheet2df(BlimpImport.sheet_ID, HEADER_ROW=2,
+                                   SHEET_NAME=_sheet_name)
         self.df = gsheet.correct_behaviour_df(self.df)
         self.parse_spreadsheet()
 
@@ -297,28 +323,40 @@ class BlimpImport(OptoStim2p):
         self.rows_2p = intersect(idx_analyse, idx_2p)
         self.rows_1p = intersect(idx_analyse, idx_1p)
 
-        self.dates_2p = gsheet.df_col(self.df, BlimpImport.date_header, self.rows_2p)
-        self.paqs = gsheet.df_col(self.df, BlimpImport.paq_header, self.rows_2p)
-        self.naparm_folders = gsheet.df_col(self.df, BlimpImport.naparm_header, self.rows_2p)
-        self.blimp_folders = gsheet.df_col(self.df, BlimpImport.blimp_header, self.rows_2p)
-        self.pycontrol_folders = gsheet.df_col(self.df, BlimpImport.pycontrol_header, self.rows_2p)
-        self.prereward_folders = gsheet.df_col(self.df, BlimpImport.prereward_header, self.rows_2p)
-        self.tseries_folders = gsheet.df_col(self.df, BlimpImport.tseries_header, self.rows_2p)
-        self.plane_numbers = gsheet.df_col(self.df, BlimpImport.plane_header, self.rows_2p)
+        self.dates_2p = gsheet.df_col(self.df, BlimpImport.date_header, 
+                                      self.rows_2p)
+        self.paqs = gsheet.df_col(self.df, BlimpImport.paq_header,
+                                  self.rows_2p)
+        self.naparm_folders = gsheet.df_col(self.df, BlimpImport.naparm_header,
+                                            self.rows_2p)
+        self.blimp_folders = gsheet.df_col(self.df, BlimpImport.blimp_header,
+                                           self.rows_2p)
+        self.pycontrol_folders = gsheet.df_col(self.df,
+                                               BlimpImport.pycontrol_header,
+                                               self.rows_2p)
+        self.prereward_folders = gsheet.df_col(self.df, BlimpImport.prereward_header, 
+                                               self.rows_2p)
+        self.tseries_folders = gsheet.df_col(self.df, BlimpImport.tseries_header, 
+                                             self.rows_2p)
+        self.plane_numbers = gsheet.df_col(self.df, BlimpImport.plane_header, 
+                                           self.rows_2p)
 
-        assert len(self.paqs) == len(self.naparm_folders) == len(self.blimp_folders) == len(self.dates_2p)
+        assert len(self.paqs) == len(self.naparm_folders) == \
+               len(self.blimp_folders) == len(self.dates_2p)
         num_runs = len(self.paqs)
 
     def import_1p(self):
 
-        '''call me instead of get_object_and_test if importing 1-photon experiment''' 
+        '''call me instead of get_object_and_test if 
+           importing 1-photon experiment''' 
         
         dates_1p = gsheet.df_col(self.df, BlimpImport.date_header, self.rows_1p)
-        pycontrol_1p = gsheet.df_col(self.df, BlimpImport.pycontrol_header, self.rows_1p)
+        pycontrol_1p = gsheet.df_col(self.df, BlimpImport.pycontrol_header,
+                                     self.rows_1p)
 
         obj_list = []
         for date, pyc in zip(dates_1p, pycontrol_1p):
-            umbrella = os.path.join(BlimpImport.packerstation_path, date)
+            umbrella = os.path.join(BlimpImport.server_path, date)
             pycontrol_path = gsheet.path_finder(umbrella, pyc, is_folder=False)
             obj = OptoStim1p(pycontrol_path[0])
             obj_list.append(obj)
@@ -328,19 +366,23 @@ class BlimpImport(OptoStim2p):
 
     def get_object_and_test(self, run, raise_error=True):
 
-        '''Build object for a sepcific run and test that details have been entered correctly
+        '''Build object for a sepcific run and test that details
+           have been entered correctly
 
-           Adds attributes to the BlimpImport object from the paq file, and blimp alignment file
-           also generates an alignment object using rsync that can be used to map paq events
+           Adds attributes to the BlimpImport object from the paq file,
+           and blimp alignment file also generates an alignment object 
+           using rsync that can be used to map paq events
            to pycontrol txt file events
            Inputs:
            run -- run number to process, matching metadata spreadsheet
-           raise_error -- whether to raise an error or just print if the paq or blimp alignment file could
-                          not be matched to the pycontrol txt file
+           raise_error -- whether to raise an error or just print if the paq
+                          or blimp alignment file could not be matched to
+                          the pycontrol txt file
 
            '''
 
-        self.run_pycontrol_txt = self.df.loc[self.df['Run Number'] == str(run)]['pycontrol txt'].tolist()[0]
+        self.run_pycontrol_txt = self.df.loc[self.df['Run Number'] ==\
+                                 str(run)]['pycontrol txt'].tolist()[0]
 
         run_idx = self.pycontrol_folders.index(self.run_pycontrol_txt)
 
@@ -356,9 +398,14 @@ class BlimpImport(OptoStim2p):
         else:
             self.num_planes = None
 
-        umbrella = os.path.join(BlimpImport.packerstation_path, date)
-        self.blimp_path, self.naparm_path  = gsheet.path_finder(umbrella, blimp, naparm, is_folder=True)
-        self.pycontrol_path, self.paq_path, self.prereward_path = gsheet.path_finder(umbrella, pycontrol, paq, prereward, is_folder=False)
+        umbrella = os.path.join(BlimpImport.server_path, date)
+        print(umbrella)
+        self.blimp_path, self.naparm_path  = gsheet.path_finder(umbrella, 
+                                                                blimp,
+                                                                naparm, 
+                                                                is_folder=True)
+        self.pycontrol_path, self.paq_path, self.prereward_path =\
+        gsheet.path_finder(umbrella, pycontrol, paq, prereward, is_folder=False)
         
         if tseries == 'None' or not tseries:
             self.tseries_paths = None
@@ -367,14 +414,17 @@ class BlimpImport(OptoStim2p):
 
         with open(os.path.join(self.blimp_path, 'blimpAlignment.txt'), 'r') as f:
             file_lines = f.readlines()
-            self.align_barcode = [re.search('(?<=Barcode )(.*)(?=. Info)', line).group(0) for line in file_lines] 
-            self.trial_info = [line.split('Info:')[-1].rstrip('\n').strip() for line in file_lines]
+            self.align_barcode = [re.search('(?<=Barcode )(.*)(?=. Info)', line)
+                                  .group(0) for line in file_lines] 
+            self.trial_info = [line.split('Info:')[-1].rstrip('\n').strip()
+                               for line in file_lines]
 
         # build behaviour object from the pycontrol txt file
         super().__init__(self.pycontrol_path)
         # test that the list of barcodes printed in the pycontrol sequence is contained in the
         # list of barcodes from the alignment folder
-        if not ''.join([str(b) for b in self.alltrials_barcodes]) in ''.join([str(b) for b in self.align_barcode]):
+        if not ''.join([str(b) for b in self.alltrials_barcodes]) in ''.join(
+                       [str(b) for b in self.align_barcode]):
             error_str = 'pycontrol {} does not match blimp folder {}'.format(pycontrol, blimp)
             if raise_error: raise ValueError(error_str)
             else: print(error_str)
