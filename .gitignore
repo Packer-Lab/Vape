@@ -10,4 +10,6 @@
 **.py.swm
 **.py.swo
 **token.pickle
+token.pickle
 **credentials.json
+credentials.json
