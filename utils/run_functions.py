@@ -63,8 +63,10 @@ def filter_trials(run, good=True, window_size=5, plot=False):
         '''
 
     subsets = Subsets(run)
+    n_trials = len(run.outcome)
 
     easy_idx = np.where(subsets.trial_subsets == 150)[0]
+    # easy_idx = np.where(np.array(run.trial_type)=='go')[0]
     nogo_idx = np.where(subsets.trial_subsets == 0)[0]
 
     go_outcome = []
@@ -87,38 +89,72 @@ def filter_trials(run, good=True, window_size=5, plot=False):
             raise ValueError
 
     running_go = np.convolve(go_outcome, np.ones(
-        (window_size,))/window_size, mode='valid')
+        (window_size,))/window_size, mode='same')
     running_nogo = np.convolve(nogo_outcome, np.ones(
-        (window_size,))/window_size, mode='valid')
+        (window_size,))/window_size, mode='same')
 
+    # running_go = signal.resample(running_go, n_trials)
+    # running_nogo = signal.resample(running_nogo, n_trials)
+    running_go = np.interp(np.arange(n_trials), easy_idx, running_go)
+    running_nogo = np.interp(np.arange(n_trials), nogo_idx, running_nogo)
+
+    print(len(running_go))
+
+    print(len(easy_idx))
+    print(len(running_nogo))
+
+    # resampling can give < 1 or > 0
+
+    cap = lambda lst: [max(min(x, 1), 0) for x in lst] 
+    running_go = cap(running_go)
+    running_nogo = cap(running_nogo)
     # resample the nogo so lengths are matched
-    if len(running_nogo) != len(running_go):
-        running_nogo = signal.resample(running_nogo, len(running_go))
+    # if len(running_nogo) != len(running_go):
+        # running_nogo = signal.resample(running_nogo, len(running_go))
 
-    assert len(running_go) == len(running_nogo)
 
     running_dp = [utils.d_prime(go, nogo)
                   for go, nogo in zip(running_go, running_nogo)]
-    running_dp = signal.resample(running_dp, len(easy_idx))
+    running_dp = np.array(running_dp)
+    print(max(running_go))
+    print(min(running_go))
+    # running_dp = signal.resample(running_dp, len(easy_idx))
+    # x_coords = np.delete(np.arange(len(run.outcome)), easy_idx)
+    # # x_coords = np.arange(len(run.outcome))
 
-    x_coords = np.delete(np.arange(len(run.outcome)), easy_idx)
-    dp_interped = np.interp(x_coords, easy_idx, running_dp)
+    # dp_interped = np.interp(x_coords, easy_idx, running_dp)
+    trial_map = {
+                'hit': 1,
+                'miss': 0,
+                'cr': -0.5,
+                'fp': -1
+                }
+
+    trial_plotter = [trial_map[i] for i in run.outcome]
+    
 
     if plot:
-        plt.plot(dp_interped, label='Interpolated d-prime')
-        plt.plot(np.linspace(0, len(dp_interped), len(
-            running_go)), running_go, color='red',
-            label='Running Hit Rate')
-        plt.plot(np.linspace(0, len(dp_interped), len(
-            running_nogo)), running_nogo, color='green',
-            label='Running False positive rate')
-        plt.legend(fontsize=10)
-        plt.ylim((0, 2))
+        plt.figure(figsize=(15,15))
+        # plt.plot(dp_interped, label='Interpolated d-prime')
+        # plt.plot(np.linspace(0, len(dp_interped), len(
+            # running_go)), running_go, color='red',
+            # label='Running Hit Rate')
+        # plt.plot(np.linspace(0, len(dp_interped), len(
+            # running_nogo)), running_nogo, color='green',
+            # label='Running False positive rate')
+        plt.plot(running_go, color='red')
+        plt.plot(running_nogo, color='blue')
+        plt.plot(running_dp, color= 'green')
+        # plt.legend(fontsize=10)
+        plt.xlabel('Trial Number')
+        plt.plot(trial_plotter, '.', markersize=12)
+        # plt.xlim((0,20))
+        # plt.ylim((0, 2))
 
     if good:
-        return np.where(dp_interped >= 1)[0]
+        return np.where(running_dp >= 1)[0]
     else:
-        return np.where(dp_interped < 0.5)[0]
+        return np.where(running_dp < 0.5)[0]
 
 
 def get_spont_trials(run, pre_frames=5, post_frames=9, n_trials=10):

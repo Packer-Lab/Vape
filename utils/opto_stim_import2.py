@@ -410,7 +410,8 @@ class BlimpImport(OptoStim2p):
         if tseries == 'None' or not tseries:
             self.tseries_paths = None
         else:
-            self.tseries_paths = [gsheet.path_finder(umbrella, t, is_folder=True) for t in tseries]
+            self.tseries_paths = [gsheet.path_finder(umbrella, t, is_folder=True)
+            for t in tseries]
 
         with open(os.path.join(self.blimp_path, 'blimpAlignment.txt'), 'r') as f:
             file_lines = f.readlines()
@@ -421,30 +422,43 @@ class BlimpImport(OptoStim2p):
 
         # build behaviour object from the pycontrol txt file
         super().__init__(self.pycontrol_path)
-        # test that the list of barcodes printed in the pycontrol sequence is contained in the
-        # list of barcodes from the alignment folder
+        # test that the list of barcodes printed in the pycontrol 
+        # sequence is contained in the list of barcodes from the 
+        # alignment folder
         if not ''.join([str(b) for b in self.alltrials_barcodes]) in ''.join(
                        [str(b) for b in self.align_barcode]):
-            error_str = 'pycontrol {} does not match blimp folder {}'.format(pycontrol, blimp)
+            error_str = 'pycontrol {} does not match blimp folder {}'.\
+                         format(pycontrol, blimp)
             if raise_error: raise ValueError(error_str)
             else: print(error_str)
         else:
-            print('pycontrol {} successfully matched to blimp folder {}'.format(pycontrol, blimp))
+            print('pycontrol {} successfully matched to blimp folder {}'
+                  .format(pycontrol, blimp))
 
         # read the paq file and get out useful info
         _paq_obj = paq_read(self.paq_path)
 
-        self.paq_rsync = paq_data(_paq_obj, 'pycontrol_rsync', threshold_ttl=True, plot=False)
-        self.frame_clock = paq_data(_paq_obj, 'frame_clock', threshold_ttl=True, plot=False)
-        self.x_galvo_uncaging = paq_data(_paq_obj, 'x_galvo_uncaging', threshold_ttl=False, plot=False)
-        self.slm2packio = paq_data(_paq_obj, 'slm2packio', threshold_ttl=True, plot=False)
+        self.paq_rsync = paq_data(_paq_obj, 'pycontrol_rsync', 
+                                 threshold_ttl=True, plot=False)
+        self.frame_clock = paq_data(_paq_obj, 'frame_clock', 
+                                    threshold_ttl=True, plot=False)
+        self.x_galvo_uncaging = paq_data(_paq_obj, 'x_galvo_uncaging', 
+                                         threshold_ttl=False, plot=False)
+        self.slm2packio = paq_data(_paq_obj, 'slm2packio', threshold_ttl=True,
+                                   plot=False)
         self.paq_rate = _paq_obj['rate']
 
         try:
-            self.aligner = Rsync_aligner(pulse_times_A=self.rsync, pulse_times_B=self.paq_rsync,
-                                        units_B=1000/self.paq_rate, chunk_size=6, plot=True, raise_exception=True)
+            self.aligner = Rsync_aligner(pulse_times_A=self.rsync,
+                                        pulse_times_B=self.paq_rsync,
+                                        units_B=1000/self.paq_rate, 
+                                        chunk_size=6, plot=True, 
+                                        raise_exception=True)
+
             self.paq_correct = True
-            print('pycontrol {} rsync successfully matched to paq {}'.format(basename(self.prereward_path), basename(self.paq_path)))
+            print('pycontrol {} rsync successfully matched to paq {}'.
+                   format(basename(self.prereward_path), 
+                          basename(self.paq_path)))
         except Exception as e:
             print(e)
             self.paq_correct = False
@@ -465,19 +479,36 @@ class BlimpImport(OptoStim2p):
         self.pre_licks = prereward_session.times.get('lick_1')
         self.pre_reward = prereward_session.times.get('reward')
 
+        ## workaround for if accidently stop paq after prereward
+        # pre_paq_path = '/home/jrowland/mnt/qnap/Data/2019-12-16/'\
+                       # '2019-12-14_J064_t003.paq'
+
+        # _pre_paq = paq_read(pre_paq_path)
+
+        # _pre_paq_rsync = paq_data(_pre_paq, 'pycontrol_rsync', 
+                                 # threshold_ttl=True, plot=False)
+
         try:
-            self.prereward_aligner = Rsync_aligner(pulse_times_A=self.pre_rsync, pulse_times_B=self.paq_rsync,
-                                    units_B=1000/self.paq_rate, chunk_size=6, plot=False, raise_exception=True)
+            self.prereward_aligner = Rsync_aligner(pulse_times_A=self.pre_rsync,
+                                                   pulse_times_B=self.paq_rsync,
+                                                   units_B=1000/self.paq_rate, 
+                                                   chunk_size=6, plot=False, 
+                                                   raise_exception=True)
             self.paq_correct = True
-            print('prereward {} rsync successfully matched to paq {}'.format(basename(self.prereward_path), basename(self.paq_path)))
+            print('prereward {} rsync successfully matched to paq {}'.
+                   format(basename(self.prereward_path), basename(self.paq_path)))
         except:
             self.paq_correct = False
             error_str = 'prereward rsync does not match paq'
             if raise_error: raise ValueError(error_str)
             else: print(error_str)
         
-        self.both_aligner =  Rsync_aligner(pulse_times_A = np.hstack((self.pre_rsync, self.rsync)), 
-                                           pulse_times_B = self.paq_rsync, units_B = 1000/self.paq_rate,
-                                           chunk_size=6, plot=False, raise_exception=True)
+        self.both_aligner =  Rsync_aligner(pulse_times_A = 
+                                           np.hstack((self.pre_rsync, 
+                                                      self.rsync)), 
+                                           pulse_times_B = self.paq_rsync,
+                                           units_B = 1000/self.paq_rate,
+                                           chunk_size=6, plot=False,
+                                           raise_exception=True)
 
 

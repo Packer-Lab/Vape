@@ -44,8 +44,9 @@ def dfof(arr):
 
 def dfof2(flu):
     '''
-    delta f over f, this function is orders of magnitude faster than the dumb one above
-    takes input matrix flu (num_cells x num_frames)
+    delta f over f, this function is orders of magnitude faster 
+    than the dumb one above takes input matrix flu 
+    (num_cells x num_frames)
     (JR 2019)
 
     '''
@@ -78,9 +79,11 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
             elif file == 'Fneu.npy':
                 neuropil = np.load(os.path.join(root, file), allow_pickle=True)
             elif file == 'iscell.npy':
-                is_cells = np.load(os.path.join(root, file), allow_pickle=True)[:, 0]
+                is_cells = np.load(os.path.join(root, file), 
+                                   allow_pickle=True)[:, 0]
                 is_cells = np.ndarray.astype(is_cells, 'bool')
-                print('Loading {} traces labelled as cells'.format(sum(is_cells)))
+                print('Loading {} traces labelled as cells'
+                      .format(sum(is_cells)))
             elif file == 'spks.npy':
                 spks = np.load(os.path.join(root, file), allow_pickle=True)
             elif file == 'stat.npy':
@@ -103,7 +106,8 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
         return all_cells, spks, stat
 
     else:
-        print('Subtracting neuropil with a coefficient of {}'.format(neuropil_coeff))
+        print('Subtracting neuropil with a coefficient of {}'
+              .format(neuropil_coeff))
         neuropil_corrected = all_cells - neuropil * neuropil_coeff
         return neuropil_corrected, spks, stat
 
@@ -208,8 +212,8 @@ def stim_start_frame_mat(stim_times, frames_ms, fs=5, debug_print=False):
 
         '''
 
-    # The substituion with -1 causes an inplace mutation of the start_times variable
-    # in the run objects, copy to avoid this
+    # The substituion with -1 causes an inplace mutation of the start_times 
+    # variable in the run objects, copy to avoid this
     stim_times_copy = copy.deepcopy(stim_times)
 
     # get rid of stims that occur outside the frame clock
@@ -245,7 +249,8 @@ def stim_start_frame_mat(stim_times, frames_ms, fs=5, debug_print=False):
         # not imaged. If the stim is > inter-frame_interval from a
         # frame then discount this stim (currently only checking this
         # on the first cell
-        if np.isnan(vals).any() or abs(stim_time - vals[0]) > ifi_ms or stim_time == -1:
+        if np.isnan(vals).any() or abs(stim_time - vals[0]) > ifi_ms or \
+        stim_time == -1:
             stim_idx = np.full(stim_idx.shape, np.nan)
         else:
             if debug_print:
@@ -301,17 +306,18 @@ def myround(x, base=5):
 
 
 def tseries_finder(tseries_lens, frame_clock, paq_rate=20000):
-    ''' Finds chunks of frame clock that correspond to the tseries in tseries lens
 
-        tseries_lens -- list of the number of frames each tseries you want to find 
-                       contains
+    ''' Finds chunks of frame clock that correspond to the tseries in 
+        tseries lens
+        tseries_lens -- list of the number of frames each tseries you want 
+                        to find contains
         frame_clock  -- thresholded times each frame recorded in paqio occured
-
-        ppaq_rate     -- input sampling rate of paqio
+        paq_rate     -- input sampling rate of paqio
 
         '''
 
-    # frame clock recorded in paqio, includes TTLs from cliking 'live' and foxy extras
+    # frame clock recorded in paqio, includes TTLs from cliking 'live' 
+    # and foxy extras
     clock = frame_clock / paq_rate
 
     # break the recorded frame clock up into individual aquisitions
@@ -321,7 +327,8 @@ def tseries_finder(tseries_lens, frame_clock, paq_rate=20000):
     gap_idx = np.append(gap_idx, len(clock))
     chunked_paqio = np.diff(gap_idx)
 
-    # are each of the frames recorded by the frame clock actually in processed tseries?
+    # are each of the frames recorded by the frame clock actually 
+    # in processed tseries?
     real_frames = np.zeros(len(clock))
     # the max number of extra frames foxy could spit out
     foxy_limit = 20
@@ -343,7 +350,8 @@ def tseries_finder(tseries_lens, frame_clock, paq_rate=20000):
             if chunk >= ts and chunk <= ts + foxy_limit:
                 # this chunk of paqio clock is a recorded tseries
                 is_tseries = True
-                # advance the number of tseries found so they are not detected twice
+                # advance the number of tseries found so they are not 
+                # detected twice
                 series_found += 1
                 break
 
@@ -360,8 +368,10 @@ def tseries_finder(tseries_lens, frame_clock, paq_rate=20000):
             counter += extra_frames
 
         else:
-            # not a tseries so just move the counter along by the chunk of paqio clock
-            # this could be wrong, not sure if i've fixed the ob1 error, go careful
+            # not a tseries so just move the counter along by the chunk 
+            # of paqio clock
+            # this could be wrong, not sure if i've fixed the ob1 error,
+            # go careful
             counter += chunk + 1
 
     real_idx = np.where(real_frames == 1)
@@ -424,12 +434,14 @@ def flu_splitter(flu, clock, t_starts, pre_frames, post_frames):
     return trial_flu, imaging_trial
 
 
+
 def flu_splitter2(flu, stim_times, frames_ms, pre_frames=10, post_frames=30):
 
     stim_idxs = stim_start_frame_mat(stim_times, frames_ms, debug_print=False)
 
     stim_idxs = stim_idxs[:, np.where((stim_idxs[0, :]-pre_frames > 0) &
-                                      (stim_idxs[0, :] + post_frames < flu.shape[1]))[0]]
+                                      (stim_idxs[0, :] + post_frames 
+                                      < flu.shape[1]))[0]]
 
     n_trials = stim_idxs.shape[1]
     n_cells = frames_ms.shape[0]
@@ -461,7 +473,8 @@ def flu_splitter3(flu, stim_times, frames_ms, pre_frames=10, post_frames=30):
 
     # not 100% sure about this line, keep an eye
     stim_idxs[:, np.where((stim_idxs[0, :]-pre_frames <= 0) |
-                          (stim_idxs[0, :] + post_frames >= flu.shape[1]))[0]] = np.nan
+                          (stim_idxs[0, :] + post_frames 
+                           >= flu.shape[1]))[0]] = np.nan
 
     n_trials = stim_idxs.shape[1]
     n_cells = frames_ms.shape[0]
@@ -498,24 +511,31 @@ def closest_frame_before(clock, t):
     return np.where(subbed < 0, subbed, -np.inf).argmax()
 
 
-def test_responsive(flu, frame_clock, stim_times, pre_frames=10, post_frames=10, offset=0):
-    ''' Tests if cells in a fluoresence array are significantly responsive to a stimulus
+def test_responsive(flu, frame_clock, stim_times, pre_frames=10, 
+                    post_frames=10, offset=0):
+    ''' Tests if cells in a fluoresence array are significantly responsive 
+        to a stimulus
 
         Inputs:
         flu -- fluoresence matrix [n_cells x n_frames] likely dfof from suite2p
         frame_clock -- timing of the frames, must be digitised and in same 
                        reference frame as stim_times
-        stim_times -- times that stims to test responsiveness on occured, must be 
-                      digitised and in same reference frame as frame_clock
-        pre_frames -- the number of frames before the stimulus occured to baseline with
-        post_frames -- the number of frames after stimulus to test differnece compared
+        stim_times -- times that stims to test responsiveness on occured, 
+                      must be digitised and in same reference frame 
+                      as frame_clock
+        pre_frames -- the number of frames before the stimulus occured to 
+                      baseline with
+        post_frames -- the number of frames after stimulus to test differnece 
+                       compared
                        to baseline
-        offset -- the number of frames to offset post_frames from the stimulus, so don't
-                  take into account e.g. stimulus artifact
+        offset -- the number of frames to offset post_frames from the 
+                  stimulus, so don't take into account e.g. stimulus artifact
 
         Returns:
-        pre -- matrix of fluorescence values in the pre_frames period [n_cells x n_frames]
-        post -- matrix of fluorescence values in the post_frames period [n_cells x n_frames]
+        pre -- matrix of fluorescence values in the pre_frames period 
+               [n_cells x n_frames]
+        post -- matrix of fluorescence values in the post_frames period 
+                [n_cells x n_frames]
         pvals -- vector of pvalues from the significance test [n_cells]
 
         '''
@@ -532,7 +552,8 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames=10, post_frames=10,
 
         stim_frame = closest_frame_before(frame_clock, stim_time)
 
-        if stim_frame-pre_frames <= 0 or stim_frame+post_frames+offset >= n_frames:
+        if stim_frame-pre_frames <= 0 or stim_frame+post_frames+offset \
+           >= n_frames:
             continue
         elif stim_frame - pre_frames <= prev_frame:
             print('WARNING: STA for stim number {} overlaps with the '
@@ -589,10 +610,11 @@ def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
     return flu_array
 
 
-def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=None,
-             plot=False, fs=5):
+def averager(array_list, pre_frames=10, post_frames=50, offset=0, 
+             trial_filter=None, plot=False, fs=5):
 
-    ''' Averages list of trial by trial fluoresence arrays and can visualise results
+    ''' Averages list of trial by trial fluoresence arrays and can 
+        visualise results
 
         Inputs:
         array_list -- list of tbt fluoresence arrays
@@ -607,7 +629,8 @@ def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=N
 
         Returns:
         session_average -- mean array [n_sessions x pre_frames+post_frames]
-        scaled_average -- same as session average but all traces start at dfof = 0
+        scaled_average -- same as session average but all traces start 
+                          at dfof = 0
         grand_average -- average across all sessions [pre_frames + post_frames]
         cell_average -- list with length n_sessions contains arrays 
                         [n_cells x pre_frames+post_frames]
@@ -623,7 +646,8 @@ def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=N
 
     cell_average = [np.nanmean(k, 1) for k in array_list]
 
-    session_average = np.array([np.nanmean(np.nanmean(k, 0), 0) for k in array_list])
+    session_average = np.array([np.nanmean(np.nanmean(k, 0), 0)
+                               for k in array_list])
 
     scaled_average = np.array([session_average[i, :] - session_average[i, 0]
                                for i in range(n_sessions)])
@@ -635,9 +659,9 @@ def averager(array_list, pre_frames=10, post_frames=50, offset=0, trial_filter=N
         plt.plot(x_axis, grand_average)
         plt.plot(x_axis[0:pre_frames],
                  grand_average[0:pre_frames], color='red')
-        plt.plot(x_axis[pre_frames+offset:pre_frames+offset+(post_frames-offset)],
-                 grand_average[pre_frames+offset:pre_frames+offset+(post_frames-offset)],
-                 color='red')
+        plt.plot(x_axis[pre_frames+offset:pre_frames+offset
+                 +(post_frames-offset)], grand_average[pre_frames+offset:
+                 pre_frames+offset+(post_frames-offset)], color='red')
         for s in scaled_average:
             plt.plot(x_axis, s, alpha=0.2, color='grey')
 
@@ -687,7 +711,9 @@ def prepost_diff(array_list, pre_frames=10,
         array_list, pre_frames, post_frames)
 
     post = np.nanmean(
-        session_average[:, pre_frames+offset:pre_frames+offset+(post_frames-offset)], 1)
+                      session_average[:, pre_frames+offset:pre_frames+offset
+                      +(post_frames-offset)], 1
+                     )
     pre = np.nanmean(session_average[:, 0:pre_frames], 1)
 
     return post - pre

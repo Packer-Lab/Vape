@@ -29,8 +29,6 @@ def run_processor(mouse_id, run_number, pkl_path,
     global pkl_file  # sorry
     pkl_file = os.path.join(mouse_folder, 
                             'run{}.pkl'.format(run_number))
-    print(pkl_file)
-    print(os.path.isfile(pkl_file))
 
     if os.path.isfile(pkl_file) and not reprocess:
         print('run number {} already processed\n'
@@ -40,11 +38,13 @@ def run_processor(mouse_id, run_number, pkl_path,
             with open(pkl_file, 'rb') as f:
                 print('Reloading processed pkl') 
                 run =  pickle.load(f)
+                run.reloaded = True
             return run
         else:
             return None
         
     run = BlimpImport(mouse_id)
+    run.reloaded = False
 
     try:
         run.get_object_and_test(run_number, raise_error = True)
@@ -77,6 +77,7 @@ def tiff_metadata(tiff_folder):
 
     n_frames = re.search('(?<=\[)(.*?)(?=\,)', 
                          tif_tags['ImageDescription'])
+
     n_frames = int(n_frames.group(0))
 
     return image_dims, n_frames
@@ -220,31 +221,63 @@ def main(mouse_id, run_number, pkl_path,
     
     print('\nfollowing tseries found:')
     tiff_list = []
+    print(run.tseries_paths)
     for tseries in run.tseries_paths:
-        tiff = utils.get_tiffs(tseries)
-        if not tiff:
+        tiffs = utils.get_tiffs(tseries)
+        if not tiffs:
             raise filenotfounderror('cannot find tiff in '
                                      'folder {}'.format(tseries))
-        elif len(tiff) == 1:
-            assert tiff[0][-7:] == 'Ch3.tif', 'channel not understood '\
+        elif len(tiffs) == 1:
+            assert tiffs[0][-7:] == 'Ch3.tif', 'channel not understood '\
                                               'for tiff {}'.format(tiff)
                                        
-            tiff_list.append(tiff[0])
-        elif len(tiff) == 2:  # two channels recorded (red is too dim)
-            assert tiff[0][-7:] == 'Ch2.tif' and tiff[1][-7:] == 'Ch3.tif',\
+            tiff_list.append(tiffs[0])
+        elif len(tiffs) == 2:  # two channels recorded (red is too dim)
+            assert tiffs[0][-7:] == 'Ch2.tif' and tiffs[1][-7:] == 'Ch3.tif',\
                                         'channel not understood '\
-                                        'for tiffs {} and {}'.format(tiff[0],
-                                                                        tiff[1])
+                                        'for tiffs {} and {}'.format(tiffs[0],
+                                                                        tiffs[1])
 
-            tiff = [tiff[1]]
-            tiff_list.append(tiff[0])
-        elif len(tiff) > 2:
-            raise valueerror('more than two tiffs, likely '
-                             'mpt conversion failed')
-            
+            tiffs = [tiffs[1]]
+            tiff_list.append(tiffs[0])
 
-        print(ntpath.basename(tiff[0]))
-        image_dims, n_frames = tiff_metadata(tiff[0])
+        elif len(tiffs) > 2:
+            print('Single frame tiffs not deleted, checking for MPTs')
+
+             # Check if multipage tiff conversion happend but single tiffs
+            # were not deleted
+            multipages = [tiff for tiff in tiffs if not '.ome' in tiff]
+            multipages.sort()
+
+            if not multipages:
+                raise ValueError('Folder likely contains unconverted single '
+                                 'page tiffs')
+
+            # check that the number of tiffs in the multipage matches the 
+            # number of .ome
+            num_ome = len([tiff for tiff in tiffs  if '.ome' in tiff])
+            for i, multipage in enumerate(multipages):
+                _, n_frames = tiff_metadata(multipage)
+                # ideally want equal but sometimes deletion starts but is 
+                # not completed
+                assert n_frames >= num_ome or n_frames == num_ome/len(multipages), \
+                '{} {} {}'.format(multipage, n_frames, num_ome)
+            # check for the green channel
+            if len(multipages) > 1:
+                assert multipages[1][-7:] == 'Ch3.tif', 'channel not understood '\
+                                             'for tiff {}'.format(multipages)
+                tiff_list.append(multipages[1])
+                tiffs = [multipages[1]]
+
+            elif len(multipages) == 1:
+                assert multipages[0][-7:] == 'Ch3.tif', 'channel not understood '\
+                                             'for tiff {}'.format(multipages)
+                
+                tiff_list.append(multipages[0])
+                tiffs = [multipages[0]]
+
+        print('ghe {}'.format(ntpath.basename(tiffs[0])))
+        image_dims, n_frames = tiff_metadata(tiffs[0])
         tseries_dims.append(image_dims)
         tseries_nframes.append(n_frames)
     print('\n') 
@@ -294,7 +327,7 @@ def main(mouse_id, run_number, pkl_path,
     if do_flu_preprocess:
         run  = preprocess_flu(run)
 
-    if reprocess:
+    if not run.reloaded:
         with open(pkl_file, 'wb') as f:
             pickle.dump(run, f)
 
