@@ -14,6 +14,8 @@ import copy
 import re
 import pickle
 import ntpath
+import csv
+import bisect
 
 from random import randint
 from scipy import stats
@@ -49,10 +51,10 @@ class experimentInfo():
 
         self.s2p_path = os.path.join(info[0][0], 'suite2p', 'plane0')
 
-        self.photostim_r = interarealAnalysis(info[0], 'markpoints2packio', 'pr', self.s2p_path)
-        self.photostim_s = interarealAnalysis(info[1], 'markpoints2packio', 'ps', self.s2p_path)
-        self.whisker_stim = interarealAnalysis(info[2], 'piezo_stim', 'w', self.s2p_path)
-        self.spont = interarealAnalysis(info[3], None, 'none', self.s2p_path)
+        self.photostim_r = interarealAnalysis(info[0], 'markpoints2packio', 'pr', self.s2p_path, self.sheet_name)
+        self.photostim_s = interarealAnalysis(info[1], 'markpoints2packio', 'ps', self.s2p_path, self.sheet_name)
+        self.whisker_stim = interarealAnalysis(info[2], 'piezo_stim', 'w', self.s2p_path, self.sheet_name)
+        self.spont = interarealAnalysis(info[3], None, 'none', self.s2p_path, self.sheet_name)
 
     def _sortPaths(self, tiffs_pstation, naparms_pstation, paqs_pstation, stim_type):
 
@@ -211,13 +213,14 @@ class experimentInfo():
 
 class interarealAnalysis():
 
-    def __init__(self, info, stim_channel, stim_type, s2p_path):
+    def __init__(self, info, stim_channel, stim_type, s2p_path, sheet_name):
         
         if any(info):            
             self.tiff_path = info[0]
             self.naparm_path = info[1]
             self.paq_path = info[2]
             
+            self.sheet_name = sheet_name
             self.s2p_path = s2p_path
             self.stim_channel = stim_channel
             self.stim_type = stim_type
@@ -480,8 +483,8 @@ class interarealAnalysis():
         if any(s in self.stim_type for s in ['pr', 'ps']):
             self.photostimProcessing()
 
-    def _saveS2pMasks(self):
-        
+    def _saveS2pMasks(self, cell_ids, save_name):
+    
         print('Creating and savings cell masks from s2p...')
 
         #create and save the s2p cell masks, the targeted cell masks and the mean image
@@ -493,38 +496,33 @@ class interarealAnalysis():
         stat = np.load('stat.npy', allow_pickle=True)
         ops = np.load('ops.npy', allow_pickle=True).item()
         iscell = np.load('iscell.npy', allow_pickle=True)           
-        
+
         im = np.zeros((ops['Ly'], ops['Lx']), dtype='uint16')
 
         for n in range(0,len(iscell)):
-            if iscell[n][0] == 1:
+            if n in cell_ids:
                 ypix = stat[n]['ypix']
                 xpix = stat[n]['xpix']
-                im[ypix,xpix] = 255
+                im[ypix,xpix] = n
 
-        tf.imwrite(exp_name + '_cell_masks.tif', im)
-        self.cell_masks = im
-
-        im = np.zeros((ops['Ly'], ops['Lx']), dtype='uint16')
+        tf.imwrite(exp_name + '_' + save_name + '.tif', im)
+                        
+        print('Done')
+    
+    def _saveMeanImage(self):
         
-        target_ids = [self.cell_id[0][i] for i,b in enumerate(self.targeted_cells) if b==1]
+        s2p_path = self.s2p_path
+        exp_name = os.path.basename(self.tiff_path)
+
+        os.chdir(s2p_path)
         
-        for n in range(0,len(iscell)):
-            if n in target_ids:
-                ypix = stat[n]['ypix']
-                xpix = stat[n]['xpix']
-                im[ypix,xpix] = 255
-
-        tf.imwrite(exp_name + '_target_cell_masks.tif', im)
-        self.targeted_cell_masks = im
-
+        ops = np.load('ops.npy', allow_pickle=True).item()
+        
         mean_img = ops['meanImg']
 
         mean_img = np.array(mean_img, dtype='uint16')
         tf.imwrite(exp_name + '_mean_image.tif', mean_img)
-
-        print('Done')
-
+        
     def _findTargets(self):
 
         self.n_targets = []
@@ -620,8 +618,6 @@ class interarealAnalysis():
 
         print('Search completed.')
         print('Number of targeted cells: ', len([i for i in self.targeted_cells if i == 1]))
-
-        self._saveS2pMasks()
 
     def _staSignificance(self, test):
         
@@ -813,7 +809,51 @@ class interarealAnalysis():
             self._staSignificance(test)
             self._singleTrialSignificance()
     
-    def s2pProcessing(self, subtract_neuropil=True):
+    def _findS1S2(self, cell_med, s2_borders_path):
+    
+        y = cell_med[0]
+        x = cell_med[1]
+
+        #delete this, otherwise it'll be called every time, add as argument somewhere
+        for path in os.listdir(s2_borders_path):
+            if all(s in path for s in ['.csv', self.sheet_name]):
+                csv_path = os.path.join(s2_borders_path, path)
+
+        xline = []
+        yline = []
+
+        with open(csv_path) as csv_file:
+            csv_file = csv.DictReader(csv_file, fieldnames=None, dialect='excel')
+
+            for row in csv_file:
+                xline.append(int(row['xcoords']))
+                yline.append(int(row['ycoords']))
+        
+        #assumption = line is monotonic
+        line_argsort = np.argsort(yline)
+        xline = np.array(xline)[line_argsort]
+        yline = np.array(yline)[line_argsort]
+        
+        i = bisect.bisect(yline, y)
+        if i >= len(yline) : i = len(yline)-1
+        elif i == 0 : i = 1
+        
+        frame_x = int(self.frame_x/2)
+        half_frame_y = int(self.frame_y/2)
+
+        d = (x - xline[i])*(yline[i-1] - yline[i]) - (y-yline[i])*(xline[i-1]-xline[i])
+
+        ds1 = (0 - xline[i])*(yline[i-1] - yline[i]) - (half_frame_y-yline[i])*(xline[i-1]-xline[i])
+        ds2 = (frame_x - xline[i])*(yline[i-1] - yline[i]) - (half_frame_y-yline[i])*(xline[i-1]-xline[i])
+
+        if np.sign(d) == np.sign(ds1):
+            return 1
+        elif np.sign(d) == np.sign(ds2):
+            return 0
+        else:
+            return 0
+    
+    def s2pProcessing(self, s2_borders_path, subtract_neuropil=True):
         
         if self.n_frames == 0:
             print('\nNo data for this ', self.stim_type, ' experiment type')
@@ -846,14 +886,12 @@ class interarealAnalysis():
                 cell_s1 = []
                 cell_x = []
                 cell_y = []
-
+                
                 for cell,s in enumerate(stat):
                     cell_id.append(s['original_index']) # stat is an np array of dictionaries!
                     cell_med.append(s['med'])
-                    if s['med'][1] < 500: #CHANGE THIS TO USE CUSTOM BORDER FOR EACH EXPERIMENT!!!
-                        cell_s1.append(True)
-                    else: 
-                        cell_s1.append(False)
+                    cell_s1.append(self._findS1S2(s['med'], s2_borders_path))
+                    
                     cell_x.append(s['xpix'])
                     cell_y.append(s['ypix'])
                 
@@ -870,6 +908,24 @@ class interarealAnalysis():
 
             if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                 self._findTargets()
+            
+                # Save s2p cell masks for different identities of cells
+                #targets
+                cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.targeted_cells) if b==1]
+                save_name = 'target_cell_masks'
+                self._saveS2pMasks(cell_ids, save_name)
+            
+            #all cells
+            cell_ids = self.cell_id[0]
+            save_name = 'cell_masks'
+            self._saveS2pMasks(cell_ids, save_name)
+            
+            #s2 cells
+            cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.cell_s1[0]) if b==0]
+            save_name = 's2_masks'
+            self._saveS2pMasks(cell_ids, save_name)
+                        
+            self._saveMeanImage()
             
             self._cellStaProcessing()
 
@@ -897,28 +953,36 @@ class interarealPlotting():
 
         self.addPickles()
 
-    def _parseMetadata(self, sub_obj, target_cells):
+    def _parseSimpleMetadata(self, sub_obj):
               
         self.stim_type.append(sub_obj.stim_type)
         self.tiff_path.append(os.path.split(sub_obj.tiff_path)[1])
         self.fps.append(sub_obj.fps)
         self.n_units.append(sub_obj.n_units[0])
-        self.n_targets.append(sub_obj.n_targets)
-        self.n_targeted_cells.append(len([i for i in sub_obj.targeted_cells if i==1]))
-        self.stim_dur.append(sub_obj.stim_dur)
-        self.stim_freq.append( ( 1 / ( ( (sub_obj.single_stim_dur*sub_obj.n_shots) * sub_obj.n_groups-1 ) + ( sub_obj.inter_point_delay * sub_obj.n_groups ) ) ) *1000 )
-        self.targeted_cells.append(target_cells > 0)
         self.s1_cells.append(np.array(sub_obj.cell_s1[0]))
-
+        
         df = pd.DataFrame({'sheet_name'       : [self.sheet_name[-1]],
                            'tiff_path'        : [self.tiff_path[-1]],
                            'stim_type'        : [self.stim_type[-1]],
                            'fps'              : [self.fps[-1]],
                            'n_units'          : [self.n_units[-1]], 
-                           'n_targets'        : [self.n_targets[-1]], 
-                           'n_targeted_cells' : [self.n_targeted_cells[-1]],
+                           's1_cells'         : [self.s1_cells[-1]]
+                          }
+                         )
+        
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+        
+    def _parsePhotostimMetadata(self, sub_obj):
+        
+        self.n_targets.append(sub_obj.n_targets)
+        self.targeted_cells.append(np.array(sub_obj.targeted_cells) > 0)
+        self.n_targeted_cells.append(len([i for i in sub_obj.targeted_cells if i==1]))
+        self.stim_dur.append(sub_obj.stim_dur)
+        self.stim_freq.append( ( 1 / ( ( (sub_obj.single_stim_dur*sub_obj.n_shots) * sub_obj.n_groups-1 ) + ( sub_obj.inter_point_delay * sub_obj.n_groups ) ) ) *1000 )
+        
+        df = pd.DataFrame({'n_targets'        : [self.n_targets[-1]], 
                            'target_cells'     : [self.targeted_cells[-1]],
-                           's1_cells'         : [self.s1_cells[-1]],
+                           'n_targeted_cells' : [self.n_targeted_cells[-1]],
                            'stim_dur'         : [self.stim_dur[-1]],
                            'stim_freq'        : [self.stim_freq[-1]]
                           }
@@ -947,14 +1011,14 @@ class interarealPlotting():
                 s2_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
     
         df = pd.DataFrame({'target_sta' : [np.nanmean(targeted_sta,axis=0)],
-                            'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
-                            'target_sta_std' : [np.std(targeted_sta, axis=0)],
-                            'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
-                            'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
-                            'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)],
-                            's2_sta' : [np.nanmean(s2_sta,axis=0)],
-                            's2_sta_amp' : [np.nanmean(s2_sta_amp,axis=0)],
-                            's2_sta_std' : [np.std(s2_sta, axis=0)]
+                           'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
+                           'target_sta_std' : [np.std(targeted_sta, axis=0)],
+                           'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
+                           'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
+                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)],
+                           's2_sta' : [np.nanmean(s2_sta,axis=0)],
+                           's2_sta_amp' : [np.nanmean(s2_sta_amp,axis=0)],
+                           's2_sta_std' : [np.std(s2_sta, axis=0)]
                           }
                          )
 
@@ -1040,7 +1104,8 @@ class interarealPlotting():
                            'positive_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_pos)],
                            'negative_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_neg)],
                            'target_responders_sta' : [np.sum(sta_sig_target)],
-                           'target_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_target)]
+                           'target_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_target)],
+                           'target_responders' : [sta_sig_target]
                           }  
                          )
 
@@ -1064,13 +1129,12 @@ class interarealPlotting():
                         }  
                         )
 
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)        
+        
     def _performAnalysis(self):
 
         for pkl_file in self.new_pkls:
             print(pkl_file)
-            self.s2_border = 530 #CHANGE THIS TO CUSTOMISE PER EXPERIMENT
             
             basename = os.path.basename(pkl_file)
             self.pkl_name.append(basename)
@@ -1082,22 +1146,27 @@ class interarealPlotting():
 
             if exp_obj.spont.n_frames > 0:
                 pkl_list.append(exp_obj.spont)
-
-            target_cells = np.array(exp_obj.photostim_r.targeted_cells)\
-                 + np.array(exp_obj.photostim_s.targeted_cells)
+                
+            if exp_obj.whisker_stim.n_frames > 0:
+                pkl_list.append(exp_obj.whisker_stim)
 
             for sub_obj in pkl_list:
+                
                 self.temp_df = pd.DataFrame()
 
                 self.sheet_name.append(exp_obj.sheet_name)
 
-                self._parseMetadata(sub_obj, target_cells)
+                self._parseSimpleMetadata(sub_obj)
                 
-                self._meanResponseSTA(sub_obj)
+                if any(s in sub_obj.stim_type for s in ['pr', 'ps', 'none']):
+                    
+                    self._parsePhotostimMetadata(sub_obj)
 
-                self._numCellsTrial(sub_obj)
+                    self._meanResponseSTA(sub_obj)
 
-                self._numCellsSTA(sub_obj)
+                    self._numCellsTrial(sub_obj)
+
+                    self._numCellsSTA(sub_obj)
 
                 self._probabilityResponse(sub_obj)
 
@@ -1147,9 +1216,11 @@ class interarealPlotting():
         for _, group in grouped:
             for i, row in group.iterrows():
                 y = row.loc[column]
-                x = list(range(len(y)))
-                x = np.array(x)/row.loc['fps']
-                ax[plot_index].plot(x, y, label=row.loc['sheet_name'])
+                
+                if not np.any(np.isnan(y)):
+                    x = list(range(len(y)))
+                    x = np.array(x)/row.loc['fps']
+                    ax[plot_index].plot(x, y, label=row.loc['sheet_name'])
             plot_index += 1
             
         plt.legend()
@@ -1241,7 +1312,7 @@ class interarealPlotting():
         fig, ax = plt.subplots(nrows=1, ncols=len(grouped), figsize=(15,5), sharey=True, sharex=True)
 
         plot_index = 0
-        plot_colour = ['darkblue','darkorange','darkgreen']
+        plot_colour = ['darkblue', 'darkorange', 'darkgreen', 'darkred']
 
         for name, group in grouped:
 
@@ -1284,7 +1355,7 @@ class interarealPlotting():
 
             plot_index += 1
 
-    def scatterProbResponse(self, save_path, to_mask=None):
+    def scatterProbResponse(self, to_mask=None):
         
         df = self.df
 
@@ -1335,8 +1406,6 @@ class interarealPlotting():
                 z = np.polyfit(x[2], x[1], 1)
                 p = np.poly1d(z)
                 ax[2].plot(x[2],p(x[2]), 'k--', alpha=0.3)
-
-            plt.savefig(os.path.join(save_path, 'prob_response_boxplot_' + name + '.svg'))
 
     def staMovie(self, output_dir, pkl_list=False):
         
