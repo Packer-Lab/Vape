@@ -45,7 +45,7 @@ def select_s2(run):
     return run
 
 
-def filter_trials(run, good=True, dp_thresh=2, window_size=5, plot=False):
+def filter_trials(run, good=True, dp_thresh=1.5, window_size=5, plot=False):
     ''' Takes a run object and calculates a running d-prime
         throughout the trials, returns a list of trial idxs
         where performance was above or below this window
