@@ -484,8 +484,6 @@ class interarealAnalysis():
             self.photostimProcessing()
 
     def _saveS2pMasks(self, cell_ids, save_name):
-    
-        print('Creating and savings cell masks from s2p...')
 
         #create and save the s2p cell masks, the targeted cell masks and the mean image
         s2p_path = self.s2p_path
@@ -510,6 +508,8 @@ class interarealAnalysis():
         print('Done')
     
     def _saveMeanImage(self):
+        
+        print('Saving mean image...')
         
         s2p_path = self.s2p_path
         exp_name = os.path.basename(self.tiff_path)
@@ -847,11 +847,11 @@ class interarealAnalysis():
         ds2 = (frame_x - xline[i])*(yline[i-1] - yline[i]) - (half_frame_y-yline[i])*(xline[i-1]-xline[i])
 
         if np.sign(d) == np.sign(ds1):
-            return 1
+            return True
         elif np.sign(d) == np.sign(ds2):
-            return 0
+            return False
         else:
-            return 0
+            return False
     
     def s2pProcessing(self, s2_borders_path, subtract_neuropil=True):
         
@@ -906,6 +906,8 @@ class interarealAnalysis():
                 cell_plane.extend([plane]*num_units)
                 self.cell_plane.append(cell_plane)
 
+            self._cellStaProcessing()
+            
             if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                 self._findTargets()
             
@@ -913,21 +915,29 @@ class interarealAnalysis():
                 #targets
                 cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.targeted_cells) if b==1]
                 save_name = 'target_cell_masks'
+                print('Creating and savings target cell masks from s2p...')
                 self._saveS2pMasks(cell_ids, save_name)
             
+            #whisker responsive cells
+            if self.stim_type == 'w':
+                cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.sta_sig[0]) if b==1]
+                save_name = 'whisker_responsive_masks'
+                print('Creating and savings whisker responsive cell masks from s2p...')
+                self._saveS2pMasks(cell_ids, save_name)
+                
             #all cells
             cell_ids = self.cell_id[0]
             save_name = 'cell_masks'
+            print('Creating and savings all cell masks from s2p...')
             self._saveS2pMasks(cell_ids, save_name)
             
             #s2 cells
-            cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.cell_s1[0]) if b==0]
+            cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.cell_s1[0]) if b==False]
             save_name = 's2_masks'
+            print('Creating and savings s2 cell masks from s2p...')
             self._saveS2pMasks(cell_ids, save_name)
                         
             self._saveMeanImage()
-            
-            self._cellStaProcessing()
 
 class interarealPlotting():
 
@@ -990,14 +1000,38 @@ class interarealPlotting():
 
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
 
-    def _meanResponseSTA(self, sub_obj):
+    def _meanSTA(self, sub_obj):
+        
+        s1_sta_amp = []
+        s1_sta = []
+        s2_sta_amp = []
+        s2_sta = []
+        
+        for cell,_ in enumerate(sub_obj.cell_id[0]):
+            if sub_obj.cell_s1[0][cell] == 0:
+                s2_sta.append(sub_obj.stas[0][cell])
+                s2_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
+            if sub_obj.cell_s1[0][cell] == 1:
+                s1_sta.append(sub_obj.stas[0][cell])
+                s1_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
+    
+        df = pd.DataFrame({'s2_sta' : [np.nanmean(s2_sta,axis=0)],
+                           's2_sta_amp' : [np.nanmean(s2_sta_amp,axis=0)],
+                           's2_sta_std' : [np.std(s2_sta, axis=0)],
+                           's1_sta' : [np.nanmean(s1_sta,axis=0)],
+                           's1_sta_amp' : [np.nanmean(s1_sta_amp,axis=0)],
+                           's1_sta_std' : [np.std(s1_sta, axis=0)]
+                          }
+                         )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+    
+    def _meanTargetSTA(self, sub_obj):
         
         targeted_sta_amp = []
         targeted_sta = []
         non_targeted_sta_amp = []
         non_targeted_sta = []
-        s2_sta_amp = []
-        s2_sta = []
         
         for cell,_ in enumerate(sub_obj.targeted_cells):
             if sub_obj.targeted_cells[cell] == 1:
@@ -1006,26 +1040,87 @@ class interarealPlotting():
             else:
                 non_targeted_sta.append(sub_obj.stas[0][cell])
                 non_targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
-            if sub_obj.cell_s1[0][cell] == 0:
-                s2_sta.append(sub_obj.stas[0][cell])
-                s2_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
     
         df = pd.DataFrame({'target_sta' : [np.nanmean(targeted_sta,axis=0)],
                            'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
                            'target_sta_std' : [np.std(targeted_sta, axis=0)],
                            'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
                            'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
-                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)],
-                           's2_sta' : [np.nanmean(s2_sta,axis=0)],
-                           's2_sta_amp' : [np.nanmean(s2_sta_amp,axis=0)],
-                           's2_sta_std' : [np.std(s2_sta, axis=0)]
+                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)]
                           }
                          )
 
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+        
+    def _numCellsRespond(self, sub_obj):
 
-    def _numCellsTrial(self, sub_obj):
+        #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
+        num_s1_cells = sub_obj.cell_s1[0].count(True)
+        num_s2_cells = sub_obj.cell_s1[0].count(False)
 
+        #amplitudes of response using stimulus triggered average dff pre/post stim
+        amps = sub_obj.all_amplitudes[0]
+        pos_amps = (amps > 0).T
+        neg_amps = (amps <= 0).T
+        
+        #significant single trials for each cell (response >2 S.D. of the baseline)
+        single_sig = (np.array(sub_obj.single_sig[0])).T
+        
+        #boolean of which cells are in s1 or s2
+        s1_cells = np.array(sub_obj.cell_s1[0]) # boolean of length cell for s1 cells
+        s2_cells = ~s1_cells
+
+        #positive, negative or all responding cells in s1 or s2 for each trial
+        pos_s1 = pos_amps & single_sig & s1_cells
+        pos_s2 = pos_amps & single_sig & s2_cells
+        neg_s1 = neg_amps & single_sig & s1_cells 
+        neg_s2 = neg_amps & single_sig & s2_cells
+        
+        df = pd.DataFrame({'num_s1_cells' : [num_s1_cells],
+                           'num_s2_cells' : [num_s2_cells],
+                           'positive_s1_responders_trial' : [np.sum(pos_s1, axis=1)],
+                           'negative_s1_responders_trial' : [np.sum(neg_s1, axis=1)],
+                           'positive_s2_responders_trial' : [np.sum(pos_s2, axis=1)],
+                           'negative_s2_responders_trial' : [np.sum(neg_s2, axis=1)],
+                          }  
+                         )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+        
+        #amplitudes of response using stimulus triggered average dff pre/post stim
+        amps = sub_obj.sta_amplitudes[0]
+        pos_amps = (amps > 0).T
+        neg_amps = (amps <= 0).T
+        
+        #boolean of reliable responders (significant t-test between 100 pairs of pre and post mean dffs)
+        sta_sig = np.array(sub_obj.sta_sig[0])
+        sta_sig_nomulti = np.array(sub_obj.sta_sig_nomulti[0])
+        
+        #cells responding sta
+        sta_sig_s1_pos = sta_sig & s1_cells & pos_amps
+        sta_sig_s2_pos = sta_sig & s2_cells & pos_amps
+        sta_sig_nomulti_s1_pos = sta_sig_nomulti & s1_cells & pos_amps
+        sta_sig_nomulti_s2_pos = sta_sig_nomulti & s2_cells & pos_amps
+        sta_sig_s1_neg = sta_sig & s1_cells & neg_amps
+        sta_sig_s2_neg = sta_sig & s2_cells & neg_amps
+        sta_sig_nomulti_s1_neg = sta_sig_nomulti & s1_cells & neg_amps
+        sta_sig_nomulti_s2_neg = sta_sig_nomulti & s2_cells & neg_amps
+        
+        df = pd.DataFrame({'positive_s1_responders_sta' : [np.sum(sta_sig_s1_pos)],
+                           'negative_s1_responders_sta' : [np.sum(sta_sig_s1_neg)],
+                           'positive_s2_responders_sta' : [np.sum(sta_sig_s2_pos)],
+                           'negative_s2_responders_sta' : [np.sum(sta_sig_s2_neg)],
+                           'positive_s1_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s1_pos)],
+                           'negative_s1_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s1_neg)],
+                           'positive_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_pos)],
+                           'negative_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_neg)]
+                          }  
+                         )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+        
+    def _numTargetsRespond(self, sub_obj):
+        
         #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
         num_s1_cells = sub_obj.cell_s1[0].count(True)
         num_s2_cells = sub_obj.cell_s1[0].count(False)
@@ -1037,80 +1132,43 @@ class interarealPlotting():
 
         #significant single trials for each cell (response >2 S.D. of the baseline)
         single_sig = (np.array(sub_obj.single_sig[0])).T
-
+        
         #boolean of which cells are in s1 or s2
         s1_cells = np.array(sub_obj.cell_s1[0]) # boolean of length cell for s1 cells
         s2_cells = ~s1_cells
-
+        
         #boolean of targeted cells
         target_cells = np.array(sub_obj.targeted_cells)
         targeted_cells = target_cells > 0
-
-        #positive, negative or all responding cells in s1 or s2 for each trial
-        pos_s1 = pos_amps & single_sig & s1_cells & ~targeted_cells
-        pos_s2 = pos_amps & single_sig & s2_cells
-        neg_s1 = neg_amps & single_sig & s1_cells & ~targeted_cells
-        neg_s2 = neg_amps & single_sig & s2_cells
+        
         sig_targeted = targeted_cells & pos_amps & single_sig 
-
-        df = pd.DataFrame({'num_s1_cells' : [num_s1_cells],
-                           'num_s2_cells' : [num_s2_cells],
-                           'positive_s1_responders_trial' : [np.sum(pos_s1, axis=1)],
-                           'negative_s1_responders_trial' : [np.sum(neg_s1, axis=1)],
-                           'positive_s2_responders_trial' : [np.sum(pos_s2, axis=1)],
-                           'negative_s2_responders_trial' : [np.sum(neg_s2, axis=1)],
-                           'target_responders_trial' : [np.sum(sig_targeted, axis=1)]
+                
+        df = pd.DataFrame({'target_responders_trial' : [np.sum(sig_targeted, axis=1)]
                           }  
                          )
-
+        
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-
-    def _numCellsSTA(self, sub_obj):
-
-        #amplitudes of response using mean stimulus triggered average dff pre/post stim
+        
+        #amplitudes of response using stimulus triggered average dff pre/post stim
         amps = sub_obj.sta_amplitudes[0]
         pos_amps = (amps > 0).T
         neg_amps = (amps <= 0).T
-
+        
         #boolean of reliable responders (significant t-test between 100 pairs of pre and post mean dffs)
         sta_sig = np.array(sub_obj.sta_sig[0])
         sta_sig_nomulti = np.array(sub_obj.sta_sig_nomulti[0])
-
-        #boolean of which cells are in s1 or s2
-        s1_cells = np.array(sub_obj.cell_s1[0]) # boolean of length cell for s1 cells
-        s2_cells = ~s1_cells
-
-        #boolean of targeted cells
-        target_cells = np.array(sub_obj.targeted_cells)
-        targeted_cells = target_cells > 0
-
-        sta_sig_s1_pos = sta_sig & s1_cells & pos_amps & ~targeted_cells
-        sta_sig_s2_pos = sta_sig & s2_cells & pos_amps
+        
         sta_sig_target = sta_sig & targeted_cells & pos_amps
-        sta_sig_nomulti_s1_pos = sta_sig_nomulti & s1_cells & pos_amps & ~targeted_cells
-        sta_sig_nomulti_s2_pos = sta_sig_nomulti & s2_cells & pos_amps
         sta_sig_nomulti_target = sta_sig_nomulti & targeted_cells & pos_amps
-        sta_sig_s1_neg = sta_sig & s1_cells & neg_amps & ~targeted_cells
-        sta_sig_s2_neg = sta_sig & s2_cells & neg_amps
-        sta_sig_nomulti_s1_neg = sta_sig_nomulti & s1_cells & neg_amps & ~targeted_cells
-        sta_sig_nomulti_s2_neg = sta_sig_nomulti & s2_cells & neg_amps
-
-        df = pd.DataFrame({'positive_s1_responders_sta' : [np.sum(sta_sig_s1_pos)],
-                           'negative_s1_responders_sta' : [np.sum(sta_sig_s1_neg)],
-                           'positive_s2_responders_sta' : [np.sum(sta_sig_s2_pos)],
-                           'negative_s2_responders_sta' : [np.sum(sta_sig_s2_neg)],
-                           'positive_s1_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s1_pos)],
-                           'negative_s1_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s1_neg)],
-                           'positive_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_pos)],
-                           'negative_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_neg)],
+        
+        df = pd.DataFrame({'target_responders' : [sta_sig_target],
                            'target_responders_sta' : [np.sum(sta_sig_target)],
-                           'target_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_target)],
-                           'target_responders' : [sta_sig_target]
+                           'target_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_target)]
                           }  
                          )
-
+        
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-
+    
     def _probabilityResponse(self, sub_obj):
 
         # For each sub_obj, i.e. photostim_r, photostim_s etc.
@@ -1158,17 +1216,19 @@ class interarealPlotting():
 
                 self._parseSimpleMetadata(sub_obj)
                 
+                self._meanSTA(sub_obj)
+
+                self._numCellsRespond(sub_obj)
+                
+                self._probabilityResponse(sub_obj)
+                
                 if any(s in sub_obj.stim_type for s in ['pr', 'ps', 'none']):
                     
                     self._parsePhotostimMetadata(sub_obj)
 
-                    self._meanResponseSTA(sub_obj)
+                    self._meanTargetSTA(sub_obj)
 
-                    self._numCellsTrial(sub_obj)
-
-                    self._numCellsSTA(sub_obj)
-
-                self._probabilityResponse(sub_obj)
+                    self._numTargetsRespond(sub_obj)
 
                 self.df = self.df.append(self.temp_df, ignore_index=True)
 
@@ -1198,6 +1258,36 @@ class interarealPlotting():
 
         sns.boxplot(x='stim_type', y=column, data=df, width=0.2)
         sns.swarmplot(x='stim_type', y=column, data=df, color='k', size=5)
+                
+    def distributionSummaryStat(self, column):
+
+        print('Plotting summary statistic for all experiments:', column)
+        plt.figure()
+
+        if type(column) is not str:
+            raise Exception('ERROR: column variable is not a string')
+
+        df = self.df
+
+        grouped = df.groupby('stim_type')
+
+        fig, ax = plt.subplots(nrows=len(grouped), ncols=1, figsize=(15,15), sharey=True, sharex=True)
+        plot_index = 0
+        
+        labels = []
+        
+        for name, group in grouped:
+            for i, row in group.iterrows():
+                x = row.loc[column]
+                ax[plot_index] = sns.distplot(x, rug=True, hist=False, ax=ax[plot_index])
+                ax[plot_index].set_title(name)
+                ax[plot_index].set_xlim(-100, 100)
+                labels.append(row.loc['sheet_name'])
+            
+            ax[plot_index].legend(labels) 
+            ax[plot_index].set_xlabel(column)
+            ax[plot_index].set_ylabel('Relative frequency')
+            plot_index += 1
 
     def lineplotSTA(self, column):
 
@@ -1247,19 +1337,21 @@ class interarealPlotting():
         plot_index = 0
 
         for name, group in grouped:
-            
+                
             for i, row in group.iterrows():
-
+                
                 # Plot scatter of S1 vs. S2
                 x = row.loc[columns[0]]
                 y = row.loc[columns[1]]
-                ax[plot_index].scatter(x, y, label=row.loc['sheet_name'])
-                ax[plot_index].set_title(name)
-                
-                # Plot slope
-                z = np.polyfit(x, y, 1)
-                p = np.poly1d(z)
-                ax[plot_index].plot(x,p(x))
+
+                if isinstance(x, np.ndarray): 
+                    ax[plot_index].scatter(x, y, label=row.loc['sheet_name'])
+                    ax[plot_index].set_title(name)
+
+                    # Plot slope
+                    z = np.polyfit(x, y, 1)
+                    p = np.poly1d(z)
+                    ax[plot_index].plot(x,p(x))
     
             plot_index += 1
 
@@ -1268,7 +1360,9 @@ class interarealPlotting():
 
         plot_index = 0
         all_slopes = []
-
+        
+        labels = []
+        
         for name, group in grouped:
             
             slopes = []  
@@ -1276,12 +1370,15 @@ class interarealPlotting():
             for i, row in group.iterrows():
                 x = row.loc[columns[0]]
                 y = row.loc[columns[1]]
-                slope, _, r_value, p_value, _ = stats.linregress(x,y)
-                slopes.append(slope)
+                
+                if isinstance(x, np.ndarray):                   
+                    slope, _, r_value, p_value, _ = stats.linregress(x,y)
+                    slopes.append(slope)
             
             plot_index += 1
             
             all_slopes.append(slopes)
+            labels.append(name)
 
         plt.figure()
 
@@ -1290,7 +1387,8 @@ class interarealPlotting():
             y = slopes
             plt.plot(x, y)
 
-        plt.xticks(np.arange(3), ('ps', 'pr', 'none'))
+        plt.xticks(np.arange(4), ('ps', 'pr', 'none', 'w'))
+        plt.legend(labels)
 
     def scatterResponseSTA(self, columns, proportion=False):
 
@@ -1330,19 +1428,19 @@ class interarealPlotting():
         
         # Plot all trials of each experiment grouped by stim type
         grouped = df.groupby('sheet_name', sort=False)
-
+        
         fig, ax = plt.subplots(nrows=len(grouped), ncols=1, figsize=(5,50), sharey=True, sharex=True)
 
         plot_index = 0
-
         for name, group in grouped:
             
             if to_mask:
                 mask = np.array(group.loc[:,to_mask])[0]
-
+            
             # Get probability of response for each cell of each stim type
             x = np.array(group.loc[:,'prob_response'])
             x = np.concatenate(x, axis=0).reshape(len(group),-1)
+            
             if to_mask:
                 x = list(x[:,~mask])
             else:
@@ -1351,7 +1449,7 @@ class interarealPlotting():
             ax[plot_index].boxplot(x)
             ax[plot_index].set_title(name)
 
-            ax[plot_index].set_xticklabels(('pr', 'ps', 'none'))
+            ax[plot_index].set_xticklabels(('pr', 'ps', 'none', 'w'))
 
             plot_index += 1
 
