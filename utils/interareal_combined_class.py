@@ -139,6 +139,18 @@ class experimentInfo():
 
         return info
     
+    def _getPhotostimFrames(self, obj):
+        
+        photostim_frames = []
+
+        stim_duration_frames = list(range(0,obj.duration_frames))
+
+        for frame in obj.stim_start_frames[0]:
+            new_frames = stim_duration_frames + frame
+            photostim_frames.extend(new_frames)
+            
+        return photostim_frames
+    
     def s2pRun(self):
 
         sampling_rate = self.photostim_r.fps/self.photostim_r.n_planes
@@ -159,8 +171,8 @@ class experimentInfo():
             data_folders.extend([self.spont.tiff_path])
 
         # find the photostim frames from photostim t-series
-        photostim_r_frames = np.array(self.photostim_r.stim_start_frames)
-        photostim_s_frames = np.array(self.photostim_s.stim_start_frames) + self.photostim_r.n_frames
+        photostim_r_frames = np.array(self._getPhotostimFrames(self.photostim_r))
+        photostim_s_frames = np.array(self._getPhotostimFrames(self.photostim_s)) + self.photostim_r.n_frames
         photostim_frames = np.concatenate((photostim_r_frames, photostim_s_frames))
         first_data_folder = self.photostim_r.tiff_path
         np.save(os.path.join(first_data_folder, 'bad_frames.npy'), photostim_frames) 
