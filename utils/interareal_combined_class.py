@@ -1242,7 +1242,7 @@ class interarealPlotting():
 
                     self._numTargetsRespond(sub_obj)
 
-                self.df = self.df.append(self.temp_df, ignore_index=True)
+                self.df = self.df.append(self.temp_df, ignore_index=True, sort=False)
 
     def addPickles(self):
 
