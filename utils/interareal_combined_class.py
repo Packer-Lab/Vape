@@ -994,24 +994,6 @@ class interarealPlotting():
         
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
         
-    def _parsePhotostimMetadata(self, sub_obj):
-        
-        self.n_targets.append(sub_obj.n_targets)
-        self.targeted_cells.append(np.array(sub_obj.targeted_cells) > 0)
-        self.n_targeted_cells.append(len([i for i in sub_obj.targeted_cells if i==1]))
-        self.stim_dur.append(sub_obj.stim_dur)
-        self.stim_freq.append( ( 1 / ( ( (sub_obj.single_stim_dur*sub_obj.n_shots) * sub_obj.n_groups-1 ) + ( sub_obj.inter_point_delay * sub_obj.n_groups ) ) ) *1000 )
-        
-        df = pd.DataFrame({'n_targets'        : [self.n_targets[-1]], 
-                           'target_cells'     : [self.targeted_cells[-1]],
-                           'n_targeted_cells' : [self.n_targeted_cells[-1]],
-                           'stim_dur'         : [self.stim_dur[-1]],
-                           'stim_freq'        : [self.stim_freq[-1]]
-                          }
-                         )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-
     def _meanSTA(self, sub_obj):
         
         s1_sta_amp = []
@@ -1038,32 +1020,6 @@ class interarealPlotting():
 
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
     
-    def _meanTargetSTA(self, sub_obj):
-        
-        targeted_sta_amp = []
-        targeted_sta = []
-        non_targeted_sta_amp = []
-        non_targeted_sta = []
-        
-        for cell,_ in enumerate(sub_obj.targeted_cells):
-            if sub_obj.targeted_cells[cell] == 1:
-                targeted_sta.append(sub_obj.stas[0][cell])
-                targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
-            else:
-                non_targeted_sta.append(sub_obj.stas[0][cell])
-                non_targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
-    
-        df = pd.DataFrame({'target_sta' : [np.nanmean(targeted_sta,axis=0)],
-                           'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
-                           'target_sta_std' : [np.std(targeted_sta, axis=0)],
-                           'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
-                           'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
-                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)]
-                          }
-                         )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
     def _numCellsRespond(self, sub_obj):
 
         #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
@@ -1130,6 +1086,72 @@ class interarealPlotting():
                          )
 
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+    
+    def _probabilityResponse(self, sub_obj):
+
+        # For each sub_obj, i.e. photostim_r, photostim_s etc.
+        # calculate for each cell the probability of response and save to dataframe?
+
+        # single_sig is [plane][cell][trial]
+        n_trials = sub_obj.n_trials
+
+        # get the number of responses
+        num_respond = np.array(sub_obj.single_sig[0])
+
+        # get the probability of response
+        prob_response = np.sum(num_respond, axis=1) / n_trials
+
+        df = pd.DataFrame({'prob_response' : [prob_response]
+                        }  
+                        )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)   
+    
+    def _parsePhotostimMetadata(self, sub_obj):
+        
+        self.n_targets.append(sub_obj.n_targets)
+        self.targeted_cells.append(np.array(sub_obj.targeted_cells) > 0)
+        self.n_targeted_cells.append(len([i for i in sub_obj.targeted_cells if i==1]))
+        self.stim_dur.append(sub_obj.stim_dur)
+        self.stim_freq.append( ( 1 / ( ( (sub_obj.single_stim_dur*sub_obj.n_shots) * sub_obj.n_groups-1 ) + ( sub_obj.inter_point_delay * sub_obj.n_groups ) ) ) *1000 )
+        
+        # Find spatial spread
+        
+        df = pd.DataFrame({'n_targets'        : [self.n_targets[-1]], 
+                           'target_cells'     : [self.targeted_cells[-1]],
+                           'n_targeted_cells' : [self.n_targeted_cells[-1]],
+                           'stim_dur'         : [self.stim_dur[-1]],
+                           'stim_freq'        : [self.stim_freq[-1]]
+                          }
+                         )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+    
+    def _meanTargetSTA(self, sub_obj):
+        
+        targeted_sta_amp = []
+        targeted_sta = []
+        non_targeted_sta_amp = []
+        non_targeted_sta = []
+        
+        for cell,_ in enumerate(sub_obj.targeted_cells):
+            if sub_obj.targeted_cells[cell] == 1:
+                targeted_sta.append(sub_obj.stas[0][cell])
+                targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
+            else:
+                non_targeted_sta.append(sub_obj.stas[0][cell])
+                non_targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
+    
+        df = pd.DataFrame({'target_sta' : [np.nanmean(targeted_sta,axis=0)],
+                           'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
+                           'target_sta_std' : [np.std(targeted_sta, axis=0)],
+                           'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
+                           'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
+                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)]
+                          }
+                         )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
         
     def _numTargetsRespond(self, sub_obj):
         
@@ -1155,7 +1177,8 @@ class interarealPlotting():
         
         sig_targeted = targeted_cells & pos_amps & single_sig 
                 
-        df = pd.DataFrame({'target_responders_trial' : [np.sum(sig_targeted, axis=1)]
+        df = pd.DataFrame({'target_responders_trial' : [sig_targeted],
+                           'target_responders_trial_sum' : [np.sum(sig_targeted, axis=1)]
                           }  
                          )
         
@@ -1164,7 +1187,6 @@ class interarealPlotting():
         #amplitudes of response using stimulus triggered average dff pre/post stim
         amps = sub_obj.sta_amplitudes[0]
         pos_amps = (amps > 0).T
-        neg_amps = (amps <= 0).T
         
         #boolean of reliable responders (significant t-test between 100 pairs of pre and post mean dffs)
         sta_sig = np.array(sub_obj.sta_sig[0])
@@ -1181,25 +1203,9 @@ class interarealPlotting():
         
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
     
-    def _probabilityResponse(self, sub_obj):
-
-        # For each sub_obj, i.e. photostim_r, photostim_s etc.
-        # calculate for each cell the probability of response and save to dataframe?
-
-        # single_sig is [plane][cell][trial]
-        n_trials = sub_obj.n_trials
-
-        # get the number of responses
-        num_respond = np.array(sub_obj.single_sig[0])
-
-        # get the probability of response
-        prob_response = np.sum(num_respond, axis=1) / n_trials
-
-        df = pd.DataFrame({'prob_response' : [prob_response]
-                        }  
-                        )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)        
+    def _stimTrialParameters(self, sub_obj):
+        
+        
         
     def _performAnalysis(self):
 
@@ -1241,6 +1247,8 @@ class interarealPlotting():
                     self._meanTargetSTA(sub_obj)
 
                     self._numTargetsRespond(sub_obj)
+                    
+                    self._stimTrialParameters(sub_obj)
 
                 self.df = self.df.append(self.temp_df, ignore_index=True, sort=False)
 
