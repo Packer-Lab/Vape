@@ -222,6 +222,21 @@ class experimentInfo():
         self.whisker_stim.frames = range(subtotal,self.whisker_stim.n_frames+subtotal)
         subtotal += self.whisker_stim.n_frames
         self.spont.frames = range(subtotal,self.spont.n_frames+subtotal)
+        
+    def addShamPhotostim(self):
+        
+        self.spont.stim_start_frames = self.photostim_r.stim_start_frames
+        self.spont.naparm_path = self.photostim_r.naparm_path
+        self.spont.spiral_size = self.photostim_r.spiral_size 
+        self.spont.duration_frames = self.photostim_r.duration_frames
+        self.spont.stim_dur = self.photostim_r.stim_dur
+        self.spont.single_stim_dur = self.photostim_r.single_stim_dur
+        self.spont.n_shots = self.photostim_r.n_shots
+        self.spont.n_groups = self.photostim_r.n_groups
+        self.spont.n_trials = self.photostim_r.n_trials
+        self.spont.inter_point_delay = self.photostim_r.inter_point_delay
+        self.spont.targeted_cells = self.photostim_r.targeted_cells
+        self.spont.n_targets = self.photostim_r.n_targets
 
 class interarealAnalysis():
 
@@ -994,24 +1009,6 @@ class interarealPlotting():
         
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
         
-    def _parsePhotostimMetadata(self, sub_obj):
-        
-        self.n_targets.append(sub_obj.n_targets)
-        self.targeted_cells.append(np.array(sub_obj.targeted_cells) > 0)
-        self.n_targeted_cells.append(len([i for i in sub_obj.targeted_cells if i==1]))
-        self.stim_dur.append(sub_obj.stim_dur)
-        self.stim_freq.append( ( 1 / ( ( (sub_obj.single_stim_dur*sub_obj.n_shots) * sub_obj.n_groups-1 ) + ( sub_obj.inter_point_delay * sub_obj.n_groups ) ) ) *1000 )
-        
-        df = pd.DataFrame({'n_targets'        : [self.n_targets[-1]], 
-                           'target_cells'     : [self.targeted_cells[-1]],
-                           'n_targeted_cells' : [self.n_targeted_cells[-1]],
-                           'stim_dur'         : [self.stim_dur[-1]],
-                           'stim_freq'        : [self.stim_freq[-1]]
-                          }
-                         )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-
     def _meanSTA(self, sub_obj):
         
         s1_sta_amp = []
@@ -1038,32 +1035,6 @@ class interarealPlotting():
 
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
     
-    def _meanTargetSTA(self, sub_obj):
-        
-        targeted_sta_amp = []
-        targeted_sta = []
-        non_targeted_sta_amp = []
-        non_targeted_sta = []
-        
-        for cell,_ in enumerate(sub_obj.targeted_cells):
-            if sub_obj.targeted_cells[cell] == 1:
-                targeted_sta.append(sub_obj.stas[0][cell])
-                targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
-            else:
-                non_targeted_sta.append(sub_obj.stas[0][cell])
-                non_targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
-    
-        df = pd.DataFrame({'target_sta' : [np.nanmean(targeted_sta,axis=0)],
-                           'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
-                           'target_sta_std' : [np.std(targeted_sta, axis=0)],
-                           'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
-                           'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
-                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)]
-                          }
-                         )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
     def _numCellsRespond(self, sub_obj):
 
         #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
@@ -1130,56 +1101,6 @@ class interarealPlotting():
                          )
 
         self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
-    def _numTargetsRespond(self, sub_obj):
-        
-        #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
-        num_s1_cells = sub_obj.cell_s1[0].count(True)
-        num_s2_cells = sub_obj.cell_s1[0].count(False)
-
-        #amplitudes of response using stimulus triggered average dff pre/post stim
-        amps = sub_obj.all_amplitudes[0]
-        pos_amps = (amps > 0).T
-        neg_amps = (amps <= 0).T
-
-        #significant single trials for each cell (response >2 S.D. of the baseline)
-        single_sig = (np.array(sub_obj.single_sig[0])).T
-        
-        #boolean of which cells are in s1 or s2
-        s1_cells = np.array(sub_obj.cell_s1[0]) # boolean of length cell for s1 cells
-        s2_cells = ~s1_cells
-        
-        #boolean of targeted cells
-        target_cells = np.array(sub_obj.targeted_cells)
-        targeted_cells = target_cells > 0
-        
-        sig_targeted = targeted_cells & pos_amps & single_sig 
-                
-        df = pd.DataFrame({'target_responders_trial' : [np.sum(sig_targeted, axis=1)]
-                          }  
-                         )
-        
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
-        #amplitudes of response using stimulus triggered average dff pre/post stim
-        amps = sub_obj.sta_amplitudes[0]
-        pos_amps = (amps > 0).T
-        neg_amps = (amps <= 0).T
-        
-        #boolean of reliable responders (significant t-test between 100 pairs of pre and post mean dffs)
-        sta_sig = np.array(sub_obj.sta_sig[0])
-        sta_sig_nomulti = np.array(sub_obj.sta_sig_nomulti[0])
-        
-        sta_sig_target = sta_sig & targeted_cells & pos_amps
-        sta_sig_nomulti_target = sta_sig_nomulti & targeted_cells & pos_amps
-        
-        df = pd.DataFrame({'target_responders' : [sta_sig_target],
-                           'target_responders_sta' : [np.sum(sta_sig_target)],
-                           'target_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_target)]
-                          }  
-                         )
-        
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
     
     def _probabilityResponse(self, sub_obj):
 
@@ -1199,12 +1120,140 @@ class interarealPlotting():
                         }  
                         )
 
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)        
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)   
+    
+    def _parsePhotostimMetadata(self, sub_obj):
         
+        self.n_targets.append(sub_obj.n_targets)
+        self.targeted_cells.append(np.array(sub_obj.targeted_cells) > 0)
+        self.n_targeted_cells.append(len([i for i in sub_obj.targeted_cells if i==1]))
+        self.stim_dur.append(sub_obj.stim_dur)
+        self.stim_freq.append( ( 1 / ( ( (sub_obj.single_stim_dur*sub_obj.n_shots) * sub_obj.n_groups-1 ) + ( sub_obj.inter_point_delay * sub_obj.n_groups ) ) ) *1000 )
+        
+        # Find spatial spread
+        
+        df = pd.DataFrame({'n_targets'        : [self.n_targets[-1]], 
+                           'target_cells'     : [self.targeted_cells[-1]],
+                           'n_targeted_cells' : [self.n_targeted_cells[-1]],
+                           'stim_dur'         : [self.stim_dur[-1]],
+                           'stim_freq'        : [self.stim_freq[-1]]
+                          }
+                         )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+    
+    def _meanTargetSTA(self, sub_obj):
+        
+        targeted_sta_amp = []
+        targeted_sta = []
+        non_targeted_sta_amp = []
+        non_targeted_sta = []
+        
+        for cell,_ in enumerate(sub_obj.targeted_cells):
+            if sub_obj.targeted_cells[cell] == 1:
+                targeted_sta.append(sub_obj.stas[0][cell])
+                targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
+            else:
+                non_targeted_sta.append(sub_obj.stas[0][cell])
+                non_targeted_sta_amp.append(sub_obj.sta_amplitudes[0][cell])
+    
+        df = pd.DataFrame({'target_sta' : [np.nanmean(targeted_sta,axis=0)],
+                           'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
+                           'target_sta_std' : [np.std(targeted_sta, axis=0)],
+                           'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
+                           'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
+                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)]
+                          }
+                         )
+
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+        
+    def _numTargetsRespond(self, sub_obj):
+        
+        #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
+        num_s1_cells = sub_obj.cell_s1[0].count(True)
+        num_s2_cells = sub_obj.cell_s1[0].count(False)
+
+        #amplitudes of response using stimulus triggered average dff pre/post stim
+        amps = sub_obj.all_amplitudes[0]
+        pos_amps = (amps > 0).T
+        neg_amps = (amps <= 0).T
+
+        #significant single trials for each cell (response >2 S.D. of the baseline)
+        single_sig = (np.array(sub_obj.single_sig[0])).T
+        
+        #boolean of targeted cells
+        target_cells = np.array(sub_obj.targeted_cells)
+        targeted_cells = target_cells > 0
+        
+        sig_targeted = targeted_cells & pos_amps & single_sig 
+                
+        df = pd.DataFrame({'target_responders_trial' : [sig_targeted],
+                           'target_responders_trial_sum' : [np.sum(sig_targeted, axis=1)]
+                          }  
+                         )
+        
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+        
+        #amplitudes of response using stimulus triggered average dff pre/post stim
+        amps = sub_obj.sta_amplitudes[0]
+        pos_amps = (amps > 0).T
+        
+        #boolean of reliable responders (significant t-test between 100 pairs of pre and post mean dffs)
+        sta_sig = np.array(sub_obj.sta_sig[0])
+        sta_sig_nomulti = np.array(sub_obj.sta_sig_nomulti[0])
+        
+        sta_sig_target = sta_sig & targeted_cells & pos_amps
+        sta_sig_nomulti_target = sta_sig_nomulti & targeted_cells & pos_amps
+        
+        df = pd.DataFrame({'target_responders' : [sta_sig_target],
+                           'target_responders_sta' : [np.sum(sta_sig_target)],
+                           'target_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_target)]
+                          }  
+                         )
+        
+        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
+    
+    def _stimTrialParameters(self, sub_obj, whisker_cells):
+        
+        df = self.df
+
+        # sheet name for current session
+        sheet_name = sub_obj.sheet_name
+        stim_type = sub_obj.stim_type
+        targeted_cells = np.where(sub_obj.targeted_cells)[0]
+        all_responses = np.array(sub_obj.all_amplitudes[0])
+
+        # preallocation of list for collection of amplitudes later
+        sum_dff_trials = []
+        num_whisker_targets = []
+        
+        n_trials = np.shape(sub_obj.all_trials)[2]
+
+        for trial in range(n_trials):
+            responders = [i for i in range(sub_obj.n_units[0]) if sub_obj.single_sig[0][i][trial] == 1]
+            target_responder_ids = [i for i in responders if i in targeted_cells]
+            
+            if whisker_cells:
+                num_whisker_targets.append(sum(1 for i in whisker_cells[0] if i in target_responder_ids))
+
+            target_responses = all_responses[target_responder_ids] # responses of only the targets in dFF
+            sum_dff = np.sum(target_responses[:,trial], axis=0) # sum of those responses
+            sum_dff_trials = np.append(sum_dff_trials, sum_dff) # append to list of all trials summed dFF
+
+        temp_df = pd.DataFrame({'target_sum_dff' : [sum_dff_trials],
+                                'num_whisker_targets' : [num_whisker_targets]
+                                  }  
+                                 )
+
+        # save the results to the df
+        self.temp_df = pd.concat([self.temp_df, temp_df], axis=1, sort=False)
+                
     def _performAnalysis(self):
 
         for pkl_file in self.new_pkls:
             print(pkl_file)
+            whisker_cells = False
             
             basename = os.path.basename(pkl_file)
             self.pkl_name.append(basename)
@@ -1219,6 +1268,7 @@ class interarealPlotting():
                 
             if exp_obj.whisker_stim.n_frames > 0:
                 pkl_list.append(exp_obj.whisker_stim)
+                whisker_cells = np.where(exp_obj.whisker_stim.sta_sig[0]) # find the number of whisker responsive cells targeted on each trial
 
             for sub_obj in pkl_list:
                 
@@ -1242,6 +1292,8 @@ class interarealPlotting():
 
                     self._numTargetsRespond(sub_obj)
 
+                    self._stimTrialParameters(sub_obj, whisker_cells)
+                    
                 self.df = self.df.append(self.temp_df, ignore_index=True, sort=False)
 
     def addPickles(self):
@@ -1516,7 +1568,52 @@ class interarealPlotting():
                 z = np.polyfit(x[2], x[1], 1)
                 p = np.poly1d(z)
                 ax[2].plot(x[2],p(x[2]), 'k--', alpha=0.3)
+    
+    def boxplotWhiskerBias(self):
+        
+        #get dataframe
+        df = self.df
 
+        #preallocate variables
+        ps_target_whisker_response = []
+        pr_target_whisker_response = []
+
+        #group the dataframe by experiment
+        all_groups = df.groupby('sheet_name', sort=False)
+
+        #filter the groups to only those containing the 'stim_type': 'w'
+        filtered_df = all_groups.filter(lambda x: (x['stim_type'] == 'w').any())
+
+        #re-group the dataframe that has been filtered
+        all_whisker_groups = filtered_df.sort_values(['stim_type']).groupby('sheet_name', sort=False)
+
+        #iterate through the groups
+        for name, group in all_whisker_groups:
+
+            #find the targets responding on each trial (boolean list)
+            ps_target_responders = np.array(group.loc[group['stim_type'] == 'ps', 'target_responders'])[0]
+            pr_target_responders = np.array(group.loc[group['stim_type'] == 'pr', 'target_responders'])[0]  
+
+            #print the number of targets responding out of total number of targeted cells
+            print(name)
+            print('Similar:', list(ps_target_responders).count(True), 'out of', int(group.loc[group['stim_type'] == 'ps', 'n_targeted_cells']))
+            print('Random:', list(pr_target_responders).count(True), 'out of', int(group.loc[group['stim_type'] == 'pr', 'n_targeted_cells']))
+
+            #find the probability of response for all cells to whisker stim
+            whisker_prob_response = np.array(group.loc[group['stim_type'] == 'w', 'prob_response'])[0]
+
+            #append the probability of response to whisker stim for the responding target cells (STA)
+            ps_target_whisker_response.append(whisker_prob_response[ps_target_responders])
+            pr_target_whisker_response.append(whisker_prob_response[pr_target_responders])
+
+        #plot the result in boxplots for every animal across the two photostim types
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15,5), sharey=True);
+
+        ax[0].boxplot(ps_target_whisker_response);
+        ax[0].set_title('photostim_similar');
+        ax[1].boxplot(pr_target_whisker_response);
+        ax[1].set_title('photostim_random');
+        
     def staMovie(self, output_dir, pkl_list=False):
         
         plane = 0
