@@ -342,4 +342,38 @@ def raw_data_plotter(run, unit=0, combined=True):
     ax1.legend(lns, labs, loc=0)
 
 
+def get_bad_frames(run, save_paths, fs=30):    
+
+    pre_frames = math.ceil(1*fs)
+    post_frames = math.ceil(1.5*fs)
+
+    paqio_frames = utils.tseries_finder(run.num_frames, run.frame_clock)
+    trial_start = utils.get_spiral_start(run.x_galvo_uncaging, run.paq_rate*6)
+
+    bad_frames = []
+    trial_starts = []
+    for i, start in enumerate(trial_start):
+        
+        frames, start_idx = utils.get_trial_frames(paqio_frames, start, 
+                                                   pre_frames, post_frames, 
+                                                   paq_rate=run.paq_rate, 
+                                                   fs=fs)
+        trial_starts.append(start_idx)
+        bad_frames.append(frames)
+
+    flattened = [bf for bf in bad_frames if bf is not None]
+    flattened = [item for sublist in flattened for item in sublist]
+
+    for save_path in save_paths:
+        np.save(os.path.join(save_path, 'bad_frames.npy'), flattened, allow_pickle=True)
+        print('Bad frames calculated and saved to {}'.format(save_path))
+
+    return trial_starts, bad_frames
+        
+
+    # stack overflow flatten list of lists
+    #bad_frames = [item for sublist in bad_frames for item in sublist]  
+
+
+
 

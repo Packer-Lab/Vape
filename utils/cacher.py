@@ -9,12 +9,15 @@ import suite2p
 from suite2p.run_s2p import run_s2p
 from my_suite2p.settings import ops
 import utils_funcs as utils
+import run_functions as rf
 import re
 import tifffile
 import glob
 import ntpath
 from pathlib import Path
 import time
+import traceback
+import datetime
 
 ''' This should maybe become a class '''
 
@@ -52,14 +55,12 @@ def run_processor(mouse_id, run_number, pkl_path,
         
     except Exception as e:
         # get the information about the exception
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        print('error for run number {}'.format(run_number))
-        print('ERROR: {} FILE: {} LINE:{}\n'.format(e, fname, 
-               exc_tb.tb_lineno))
+        print('\nError for run number {}\n'.format(run_number))
+        var = traceback.format_exc()
+        print(var)
+
         return None
         
-
 def tiff_metadata(tiff_folder):
 
     ''' takes input of list of tiff folders and returns 
@@ -276,10 +277,10 @@ def main(mouse_id, run_number, pkl_path,
                 tiff_list.append(multipages[0])
                 tiffs = [multipages[0]]
 
-        print('ghe {}'.format(ntpath.basename(tiffs[0])))
         image_dims, n_frames = tiff_metadata(tiffs[0])
         tseries_dims.append(image_dims)
         tseries_nframes.append(n_frames)
+
     print('\n') 
 
     run.num_frames = tseries_nframes
@@ -302,6 +303,9 @@ def main(mouse_id, run_number, pkl_path,
     data_path = str(Path(run.tseries_paths[0]).parent)
     save_folder = os.path.join(data_path, 'suite2p', run.mouse_id)
 
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+
     db = {
        'data_path' : [data_path],
        'look_one_level_down' : True,
@@ -309,20 +313,43 @@ def main(mouse_id, run_number, pkl_path,
        'tiff_list' : tiff_list,
        'nplanes'   : run.num_planes,
        'fs'        : fs,
-       'save_folder': save_folder 
+       'save_folder': save_folder,
+       'roidetect': True,
+       'spikedetect': False,
         }   
 
-    # TEMPORARRY
+    # TEMPORARRY??
     run.s2p_path = os.path.join(Path(db['data_path'][0]),
                                 'suite2p')
+
+
 #    # check that suite2p hasn't alreay been run
 #    if os.path.exists(run.s2p_path):
 #        print('Already done s2p\n')
 #        do_s2p = False
 
+    print('Data path is {}'.format(data_path))
+    print('s2p path is {}'.format(run.s2p_path))
+
     if do_s2p:
+        # Build bad_frames.npy (not sure which directory to use so do both
+        # useful to keep record of bad frames in mouse specific suite2p 
+        # output folder
+        rf.get_bad_frames(run, [data_path, run.s2p_path, save_folder])
         print('Running s2p on tseries printed above\n')
+        with open('/home/jrowland/mnt/qnap/suite2p_report.txt', 'a') as f:
+            dateTime = datetime.datetime.today()
+            f.write('\n{} Beginning s2p for {} run {} path {}'
+                    .format(dateTime.isoformat("|", 'seconds'), run.mouse_id, 
+                            run_number, save_folder))
+            
         opsEnd=run_s2p(ops=ops,db=db)
+
+        with open('/home/jrowland/mnt/qnap/suite2p_report.txt', 'a') as f:
+            dateTime = datetime.datetime.today()
+            f.write('\n{} Completed s2p for {} run {} path {}\n\n'
+                    .format(dateTime.isoformat("|", 'seconds'), run.mouse_id, 
+                            run_number, save_folder))
 
     if do_flu_preprocess:
         run  = preprocess_flu(run)
