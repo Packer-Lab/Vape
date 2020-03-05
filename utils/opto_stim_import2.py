@@ -10,7 +10,9 @@ import gsheets_importer as gsheet
 from paq2py import paq_read
 from rsync_aligner import Rsync_aligner
 import re
-from ntpath import basename 
+from ntpath import basename
+from urllib.error import HTTPError
+from googleapiclient.errors import HttpError
 warnings.filterwarnings("ignore")
 
 
@@ -223,8 +225,15 @@ class OptoStim1p(OptoStimBasic):
 
         @property
         def trial_start(self):
-            go_start = self.session.times.get('detect_lick_go')
-            nogo_start = self.session.times.get('detect_lick_nogo')
+            # go_start = self.session.times.get('detect_lick_go')
+            # nogo_start = self.session.times.get('detect_lick_nogo')
+
+            go_start = [line.split(' ')[0] for line in self.print_lines
+                        if 'goTrial' in line]
+
+            nogo_start = [line.split(' ')[0] for line in self.print_lines
+                          if 'nogo_trial' in line]
+
             ts = np.sort(np.hstack((go_start, nogo_start)))
 
             return self.test_import_and_slice(ts) 
@@ -263,7 +272,8 @@ class OptoStim2p(OptoStimBasic):
         assert len(self.slm_barcode) == self.trial_type.count('go')
         # necessary to analyse sessions without nogo blimping
         if len(self.nogo_barcode) > 0:
-            assert len(self.nogo_barcode) == self.trial_type.count('nogo')
+            assert len(self.nogo_barcode) == self.trial_type.count('nogo'),\
+                  '{} {}'.format(self.nogo_barcode, self.trial_type.count('nogo'))
 
         self.rsync = self.session.times.get('rsync')
         # go_start = self.session.times.get('SLM_state')
@@ -279,7 +289,9 @@ class OptoStim2p(OptoStimBasic):
 class BlimpImport(OptoStim2p):
 
     #from the URL
-    sheet_ID = '1GG5Y0yCEw_h5dMfHBnBRTh5NXgF6NqC_VVGfSpCHroc'
+    sheet_IDs = ['1GG5Y0yCEw_h5dMfHBnBRTh5NXgF6NqC_VVGfSpCHroc',
+                 '1nFdqJv1aZk36CrBpRZPjRuOTHUKX8SXuVW9pa89OIHY']
+
     server_path = os.path.expanduser('~/mnt/qnap/Data')
 
     # the column headers of the spreadsheet 
@@ -302,8 +314,20 @@ class BlimpImport(OptoStim2p):
 
         self.mouse_id = mouse_id
         _sheet_name = self.mouse_id + '!A1:ZZ69'
-        self.df = gsheet.gsheet2df(BlimpImport.sheet_ID, HEADER_ROW=2,
-                                   SHEET_NAME=_sheet_name)
+
+        for idx, sheet_ID in enumerate(BlimpImport.sheet_IDs):
+        
+            try:
+                self.df = gsheet.gsheet2df(sheet_ID, HEADER_ROW=2,
+                                               SHEET_NAME=_sheet_name)
+                break
+            except HttpError:
+                if idx != len(BlimpImport.sheet_IDs)-1:
+                    continue
+                else:
+                    print(sheet_ID)
+                    raise FileNotFoundError('gsheet id incorrect')
+
         self.df = gsheet.correct_behaviour_df(self.df)
         self.parse_spreadsheet()
 
@@ -398,12 +422,15 @@ class BlimpImport(OptoStim2p):
         else:
             self.num_planes = None
 
+        self.run_idx = run_idx 
+
         umbrella = os.path.join(BlimpImport.server_path, date)
         print(umbrella)
-        self.blimp_path, self.naparm_path  = gsheet.path_finder(umbrella, 
-                                                                blimp,
-                                                                naparm, 
-                                                                is_folder=True)
+        self.blimp_path = gsheet.path_finder(umbrella, blimp, is_folder=True)[0]
+        # Bit of a hack as often naparm is used from previous days and 
+        # so is not in the umbrella
+        naparm_umbrella = os.path.join(BlimpImport.server_path, naparm.split('_')[0])
+        self.naparm_path = gsheet.path_finder(naparm_umbrella, naparm, is_folder=True)
         self.pycontrol_path, self.paq_path, self.prereward_path =\
         gsheet.path_finder(umbrella, pycontrol, paq, prereward, is_folder=False)
         
