@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import csv
 import math
+import bisect
 import copy
 
 # global plotting params
@@ -766,7 +767,6 @@ def get_spiral_start(x_galvo, debounce_time):
     # remove noise from parked galvo signal
     x_galvo[x_galvo < -0.5] = -0.6
     
-    global diffed
     diffed = np.diff(x_galvo)
     # remove the onset of galvo movement from f' signal
     diffed[diffed > square_thresh] = 0
@@ -860,4 +860,32 @@ def adamiser(string):
         
     return ' '.join(words)
 
+
+def between_two_hits(idxs, easy_idxs, easy_outcome):
+    
+    assert len(easy_idxs) == len(easy_outcome)
+    
+    # Next easy trial from each test trial
+    closest_after = np.array([bisect.bisect_left(easy_idxs, idx) for idx in idxs])
+    # Previous easy trial from each test trial
+    closest_before = closest_after - 1
+    # Test trials before the first easy trial should have both previous and next
+    # as the first easy trial
+    closest_before[closest_before==-1] = 0
+    # Test trials after the last easy trial should have both previous and next
+    # as the last easy trial
+    closest_after[idxs>easy_idxs[-1]] = len(easy_idxs)-1
+    
+    assert len(idxs) == len(closest_before) == len(closest_after)
+    
+    between_two = []
+    for before, after in zip(closest_before, closest_after):
+        if easy_outcome[before] and easy_outcome[after] == 'hit':
+            between_two.append(True)
+        else:
+            between_two.append(False)
+    
+    assert len(between_two) == len(idxs)
+    
+    return between_two
 

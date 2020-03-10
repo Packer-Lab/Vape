@@ -66,7 +66,6 @@ def filter_trials(run, good=True, dp_thresh=1.5, window_size=5, plot=False):
     n_trials = len(run.outcome)
 
     easy_idx = np.where(subsets.trial_subsets == 150)[0]
-    # easy_idx = np.where(np.array(run.trial_type)=='go')[0]
     nogo_idx = np.where(subsets.trial_subsets == 0)[0]
 
     go_outcome = []
@@ -369,10 +368,99 @@ def get_bad_frames(run, save_paths, fs=30):
         print('Bad frames calculated and saved to {}'.format(save_path))
 
     return trial_starts, bad_frames
-        
 
-    # stack overflow flatten list of lists
-    #bad_frames = [item for sublist in bad_frames for item in sublist]  
+def get_run_number(run):
+    ''' Get the number of a run object'''
+    df = run.df
+    df1 = df[df['pycontrol txt'].str.contains(run.run_pycontrol_txt)] 
+    return int(df1['Run Number'].values[0])
+
+def manual_correct(run):
+
+    ''' Carefully tested manual correction to fix e.g. when blimp
+        is restarted and paq has erroneous trial starts
+        '''
+
+    run_number = get_run_number(run)
+
+    if run.mouse_id == 'J063' and run_number==10 and\
+    len(run.spiral_start) - 2 == len(run.trial_start):
+        # The first two trials here were from a stopped and started pyc file
+        run.spiral_start = run.spiral_start[2:]
+
+    if len(run.spiral_start) == len(run.trial_start) - 1:
+        run.spiral_start = np.append(run.spiral_start, np.nan)
+
+    elif run.mouse_id == 'RL072' and run_number==20 and\
+    len(run.spiral_start) == len(run.trial_start)+1:
+        run.spiral_start = run.spiral_start[1:]
+        # The galvo was parked at 1 volt for some reason during
+        # prereward, manually correct this
+        run.x_galvo_uncaging[0:int(0.145088e8)] = -1
+
+    elif run.mouse_id == 'RL072' and run_number==24 and\
+    len(run.spiral_start) == len(run.trial_start) + 1:
+        run.spiral_start = run.spiral_start[:-1]
+        # Galvo again parked in a weird place before session started
+        run.x_galvo_uncaging[:int(1.610905e7)] = -1
+
+    return run
+
+
+def spiral_tstart(run):
+
+    '''
+    Get the times that a run's trials started based on
+    spiralling of the x-galvo
+    '''
+
+    run.spiral_start = utils.get_spiral_start(run.x_galvo_uncaging, run.paq_rate * 3)
+
+    # Closely tested manual corrections for the x_galvo
+    # to deal with e.g. restarted pycontrol sessions
+    run = manual_correct(run)
+    
+    try:
+        jitter_tstart(run)
+    except ValueError:
+        print(run.mouse_id)
+        print('x_galvo is length {} trial start is length {}'.
+              format(len(run.spiral_start), len(trial_start)))
+        raise
+
+    return run
+
+def jitter_tstart(run):
+    ''' requires spiral_start '''
+    return run.aligner.B_to_A(run.spiral_start) -  run.trial_start
+
+
+def tanke_exclusion(run):
+    
+    trial_subsets = Subsets(run).trial_subsets
+    assert len(trial_subsets) == len(run.outcome)
+    
+    easy_idxs = np.where(trial_subsets==150)[0]
+    # Only including 40 and 50 for now, change going forward
+    #test_idxs = np.where((trial_subsets!=0) & (trial_subsets!=150))[0]
+    test_idxs = np.where((trial_subsets==40) | (trial_subsets==50))[0]
+    nogo_idxs = np.where(trial_subsets==0)[0] 
+    easy_outcomes = run.outcome[easy_idxs]
+    
+    test_include = utils.between_two_hits(test_idxs, easy_idxs, easy_outcomes)
+    nogo_include = utils.between_two_hits(nogo_idxs, easy_idxs, easy_outcomes)
+    
+    return test_idxs[test_include], nogo_idxs[nogo_include]
+
+
+def dprime_tanke(run):
+
+    test_idxs, nogo_idxs = tanke_exclusion(run)
+    hit_rate = (run.outcome[test_idxs] == 'hit').sum() / len(test_idxs)
+    fp_rate = (run.outcome[nogo_idxs] == 'fp').sum() / len(nogo_idxs)
+    test_dp = utils.d_prime(hit_rate, fp_rate)
+
+    return test_dp
 
 
 
