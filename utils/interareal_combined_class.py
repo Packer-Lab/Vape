@@ -32,13 +32,6 @@ from suite2p.run_s2p import run_s2p
 
 from settings import ops
 
-def points_in_circle_np(radius, x0=0, y0=0, ):
-    x_ = np.arange(x0 - radius - 1, x0 + radius + 1, dtype=int)
-    y_ = np.arange(y0 - radius - 1, y0 + radius + 1, dtype=int)
-    x, y = np.where((x_[:,np.newaxis] - x0)**2 + (y_ - y0)**2 <= radius**2)
-    for x, y in zip(x_[x], y_[y]):
-        yield x, y
-
 class experimentInfo():
 
     def __init__(self, ss_id, sheet_name, pstation_path):
@@ -364,7 +357,8 @@ class interarealAnalysis():
         env_root = env_tree.getroot()
 
         elem_list = env_root.find('TSeries')
-        n_frames = elem_list[0].get('repetitions')
+#         n_frames = elem_list[0].get('repetitions')
+        n_frames = root.findall('Sequence/Frame')[-1].get('index')
 
         self.fps = fps
         self.frame_x = frame_x
@@ -618,7 +612,7 @@ class interarealAnalysis():
 
         target_areas = []
 
-        radius = self.spiral_size/self.pix_sz_x
+        radius = self.spiral_size/self.pix_sz_x # this is effectively double the spiral size
         for coord in targetCoordinates:
             target_area = ([item for item in points_in_circle_np(radius, x0=coord[0], y0=coord[1])])
             target_areas.append(target_area)
@@ -811,8 +805,8 @@ class interarealAnalysis():
                     t_test = stats.ttest_rel(pre_obs, post_obs)
                     t_tests.append(t_test)
                     
-                    wilcoxon = stats.wilcoxon(pre_obs, post_obs)
-                    wilcoxons.append(wilcoxon)
+#                     wilcoxon = stats.wilcoxon(pre_obs, post_obs)
+#                     wilcoxons.append(wilcoxon)
 
                 self.all_trials.append(np.array(all_trials))
                 self.stas.append(np.array(stas))
@@ -823,15 +817,15 @@ class interarealAnalysis():
                 self.t_tests.append(np.array(t_tests))
                 self.wilcoxons.append(np.array(wilcoxons))
             
-            plt.figure()
-            plt.plot([avg_post_start] * 2, [-1000, 1000])
-            plt.plot([avg_post_end] * 2, [-1000, 1000])
-            plt.plot([self.pre_frames - 1] * 2, [-1000, 1000])
-            plt.plot([0] * 2, [-1000, 1000])
-            plt.plot(stas[5])
-            plt.plot(stas[10])
-            plt.plot(stas[15])
-            plt.ylim([-100,200]) 
+#             plt.figure()
+#             plt.plot([avg_post_start] * 2, [-1000, 1000])
+#             plt.plot([avg_post_end] * 2, [-1000, 1000])
+#             plt.plot([self.pre_frames - 1] * 2, [-1000, 1000])
+#             plt.plot([0] * 2, [-1000, 1000])
+#             plt.plot(stas[5])
+#             plt.plot(stas[10])
+#             plt.plot(stas[15])
+#             plt.ylim([-100,200]) 
 
             self._staSignificance(test)
             self._singleTrialSignificance()
@@ -1130,8 +1124,6 @@ class interarealPlotting():
         self.stim_dur.append(sub_obj.stim_dur)
         self.stim_freq.append( ( 1 / ( ( (sub_obj.single_stim_dur*sub_obj.n_shots) * sub_obj.n_groups-1 ) + ( sub_obj.inter_point_delay * sub_obj.n_groups ) ) ) *1000 )
         
-        # Find spatial spread
-        
         df = pd.DataFrame({'n_targets'        : [self.n_targets[-1]], 
                            'target_cells'     : [self.targeted_cells[-1]],
                            'n_targeted_cells' : [self.n_targeted_cells[-1]],
@@ -1227,6 +1219,7 @@ class interarealPlotting():
         # preallocation of list for collection of amplitudes later
         sum_dff_trials = []
         num_whisker_targets = []
+        dists = []
         
         n_trials = np.shape(sub_obj.all_trials)[2]
 
@@ -1240,9 +1233,26 @@ class interarealPlotting():
             target_responses = all_responses[target_responder_ids] # responses of only the targets in dFF
             sum_dff = np.sum(target_responses[:,trial], axis=0) # sum of those responses
             sum_dff_trials = np.append(sum_dff_trials, sum_dff) # append to list of all trials summed dFF
+            
+            cell_positions = np.array(sub_obj.cell_med[0])
 
+            resp_positions = cell_positions[target_responder_ids]
+
+            if np.any(resp_positions):
+                targ_coords = list(zip(*resp_positions))
+                centroidx = np.sum(targ_coords[0])/len(targ_coords[0])
+                centroidy = np.sum(targ_coords[1])/len(targ_coords[1])
+                centroid = [centroidx, centroidy]
+
+                targ = resp_positions[0]
+                dist = np.linalg.norm(targ-centroid)
+                dists.append(dist)
+            else: 
+                dists.append(0.0)
+                
         temp_df = pd.DataFrame({'target_sum_dff' : [sum_dff_trials],
-                                'num_whisker_targets' : [num_whisker_targets]
+                                'num_whisker_targets' : [num_whisker_targets],
+                                'euclid_dist' : [dists]
                                   }  
                                  )
 
@@ -1408,7 +1418,7 @@ class interarealPlotting():
                 x = row.loc[columns[0]]
                 y = row.loc[columns[1]]
 
-                if isinstance(x, np.ndarray): 
+                if isinstance(x, np.ndarray) or isinstance(x, list): 
                     ax[plot_index].scatter(x, y, label=row.loc['sheet_name'])
                     ax[plot_index].set_title(name)
 
