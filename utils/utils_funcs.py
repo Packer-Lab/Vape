@@ -860,6 +860,7 @@ def adamiser(string):
         
     return ' '.join(words)
 
+<<<<<<< HEAD
 
 def between_two_hits(idxs, easy_idxs, easy_outcome):
     
@@ -894,5 +895,4 @@ def points_in_circle_np(radius, x0=0, y0=0, ):
     y_ = np.arange(y0 - radius - 1, y0 + radius + 1, dtype=int)
     x, y = np.where((x_[:,np.newaxis] - x0)**2 + (y_ - y0)**2 <= radius**2)
     for x, y in zip(x_[x], y_[y]):
-
         yield x, y
