@@ -860,7 +860,6 @@ def adamiser(string):
         
     return ' '.join(words)
 
-<<<<<<< HEAD
 
 def between_two_hits(idxs, easy_idxs, easy_outcome):
     

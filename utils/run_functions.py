@@ -8,6 +8,7 @@ from subsets_analysis import Subsets
 import utils_funcs as utils
 from scipy import signal
 import random
+import copy
 ''' functions that operate on BlimpImport objects (runs) '''
 
 
@@ -45,7 +46,7 @@ def select_s2(run):
     return run
 
 
-def filter_trials(run, good=True, dp_thresh=1.5, window_size=5, plot=False):
+def filter_trials(run, good=True, dp_thresh=1.5, window_size=5, plot=False, ax=None):
     ''' Takes a run object and calculates a running d-prime
         throughout the trials, returns a list of trial idxs
         where performance was above or below this window
@@ -117,21 +118,22 @@ def filter_trials(run, good=True, dp_thresh=1.5, window_size=5, plot=False):
     
 
     if plot:
-        plt.figure(figsize=(15,15))
-        plt.plot(running_go, color='red', label='Running Hit Rate')
-        plt.plot(running_nogo, color='blue', label='Running FA rate')
-        plt.plot(running_dp, color= 'green', label=' Running dprime')
-        plt.xlabel('Trial Number')
+        ax.plot(running_go, color='red', label='Running Hit Rate')
+        ax.plot(running_nogo, color='blue', label='Running FA rate')
+        ax.plot(running_dp, color= 'green', label=' Running dprime')
+        ax.legend(bbox_to_anchor=(-0.3, 1.05))
+        sns.despine()
+        ax.set_title('Interpolation window size {}'.format(window_size))
+        ax.set_xlabel('Trial Number')
         for trial, outcome in enumerate(run.outcome):
             if outcome == 'hit' or outcome == 'miss':
                 y_pos = 1
             else:
                 y_pos = 0
-            plt.plot(trial, y_pos, marker='o', color=trial_marker[trial], markersize=8)
+            # plt.plot(trial, y_pos, marker='o', color=trial_marker[trial], markersize=8)
 
-        plt.annotate('Go Trial', [n_trials+5, 0.97], fontsize=15)
-        plt.annotate('NoGo Trial', [n_trials+5, -0.03], fontsize=15)
-        plt.legend(fontsize=10)
+        # plt.annotate('Go Trial', [n_trials+5, 0.97], fontsize=15)
+        # plt.annotate('NoGo Trial', [n_trials+5, -0.03], fontsize=15)
 
     if good:
         return [True if rdp > dp_thresh else False for rdp in running_dp]
@@ -463,5 +465,112 @@ def dprime_tanke(run):
     return test_dp
 
 
+def autoreward(run):
+    '''detect if pycontrol went into autoreward state '''
 
+    autoreward_times = run.session.times.get('auto_reward')
+
+    autorewarded_trial = []
+    for i,t_start in enumerate(run.trial_time):
+
+        if i == run.n_trials_complete-1: 
+            t_end = np.inf
+        else:
+            t_end = run.trial_time[i+1]
+
+        is_autoreward = next((a for a in autoreward_times if 
+                              a >= t_start and a < t_end), False)
+        if is_autoreward: autorewarded_trial.append(True)
+        else: autorewarded_trial.append(False)
+        
+        
+    assert len(autorewarded_trial) == len(run.outcome)
+    assert np.all(run.outcome[autorewarded_trial]=='miss')
+        
+    return autorewarded_trial
+
+
+def subsample_trials(run, idxs):
+
+    ''' Slice n_trials length run variables by idxs '''
+
+    # Make this function 'pass by value', not ideal but oh well
+    # this could potentially go wrong so be careful
+    run = copy.deepcopy(run)
+
+    attr_list =[
+               'align_barcode',
+               'trial_info',
+               'trial_time',
+               'outcome',
+               'alltrials_barcodes',
+               'trial_start',
+               'spiral_start',
+               'spiral_licks',
+               'autorewarded_trial',
+               ]
+
+    # Have explicitly coded the list of attributes for be sliced 
+    # for clarity but check that this list is correct and complete
+    rd = run.__dict__
+    mutate_keys = [] 
+    for key, val in rd.items():
+        try:
+            if len(val) == len(run.outcome):
+                mutate_keys.append(key)
+        except TypeError:
+            continue
+        
+    assert sorted(mutate_keys) == sorted(attr_list)
+
+    # Slice attrs describing each trial
+    for attr_str in attr_list:
+
+        attr = np.array(getattr(run, attr_str))
+
+        setattr(run, attr_str, attr[idxs])
+
+    return run
+
+
+def get_binned_licks(run, tstarts):
+        
+    ''' Replaces the 'binned_licks' function in opto_stim_import2.py as this
+        function uses pyc tstart, not the x galvo spiral_start
+        '''
+    licks = run.session.times.get('lick_1')
+    binned_licks = []
+    for i, t_start in enumerate(tstarts):
+
+        # Prevent index error on last trial
+        if i == len(tstarts)-1:
+            t_end = np.inf
+        else:
+            t_end = tstarts[i+1]
+
+        #find the licks occuring in each trial
+        trial_idx = np.where((licks>=t_start) & (licks<=t_end))[0]
+
+        #normalise to time of trial start
+        trial_licks = licks[trial_idx] - t_start
+
+        binned_licks.append(trial_licks)
+
+    return binned_licks
+
+
+def reclassify_trials(run, t_toosoon=75):
+
+    ''' Make lists of too-soon and blimp missed hits '''
+    
+    first_lick = np.array([licks[0] if len(licks) != 0 else np.inf 
+                           for licks in run.spiral_licks])
+
+    assert len(run.outcome) == len(first_lick)
+
+    run.toosoon_idx = first_lick < t_toosoon
+
+    run.false_miss = np.where((first_lick < 1000) & (run.outcome=='miss'))[0]
+    
+    return run
 
