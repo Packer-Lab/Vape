@@ -492,9 +492,10 @@ class interarealAnalysis():
     def whiskerStimProcessing(self):
 
         self.stim_dur = 1000
-        self.n_trials = 100
         self.paqProcessing()
-
+        
+        #calculate number of trials from difference between stim_start_frames and total number of frames
+        self.n_trials = 100
         self.duration_frames = 0
 
     def stimProcessing(self):
