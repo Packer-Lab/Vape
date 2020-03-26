@@ -27,7 +27,7 @@ from utils.utils_funcs import *
 import xml.etree.ElementTree as ET
 
 import suite2p
-print(suite2p.__path__)
+print('Suite2p path:', suite2p.__path__)
 from suite2p.run_s2p import run_s2p
 
 from settings import ops
@@ -357,8 +357,10 @@ class interarealAnalysis():
         env_root = env_tree.getroot()
 
         elem_list = env_root.find('TSeries')
-#         n_frames = elem_list[0].get('repetitions')
-        n_frames = root.findall('Sequence/Frame')[-1].get('index')
+        n_frames = root.findall('Sequence/Frame')[-1].get('index') # not useful if xml writing breaks, use suite2p output instead
+    
+        extra_params = root.find('Sequence/Frame/ExtraParameters')
+        last_good_frame = extra_params.get('lastGoodFrame')
 
         self.fps = fps
         self.frame_x = frame_x
@@ -370,9 +372,11 @@ class interarealAnalysis():
         self.scan_y = scan_y 
         self.zoom = zoom
         self.n_frames = int(n_frames)
+        self.last_good_frame = last_good_frame
 
         print('n planes:', n_planes,
             '\nn frames:', int(n_frames),
+            '\nlast good frame (0 = all good):', last_good_frame,
             '\nfps:', fps,
             '\nframe size (px):', frame_x, 'x', frame_y, 
             '\nzoom:', zoom, 
@@ -471,7 +475,8 @@ class interarealAnalysis():
             self.stim_start_frames.append(np.array(stim_start_frames))
 
             #sanity check
-            assert max(self.stim_start_frames[0]) < self.n_frames
+            while max(self.stim_start_frames[0]) > self.n_frames:
+                self.stim_start_frames[0] = self.stim_start_frames[0][:-1]
 
     def photostimProcessing(self):
 
@@ -491,12 +496,18 @@ class interarealAnalysis():
 
     def whiskerStimProcessing(self):
 
-        self.stim_dur = 1000
+        self.stim_dur = 1000 # total whisker stim duration
         self.paqProcessing()
+        self.duration_frames = 0 # don't need to exclude stim artifact for whisker_stim
         
-        #calculate number of trials from difference between stim_start_frames and total number of frames
-        self.n_trials = 100
-        self.duration_frames = 0
+        # calculate number of trials that could fit in the t-series
+        # only really applicable for t-series with data loss
+        trial_length = np.diff(self.stim_start_frames)
+        trial_length_count = np.bincount(trial_length[0])
+        mode_trial_length = np.argmax(trial_length_count)
+        n_trials = (self.n_frames - self.stim_start_frames[0][0])/mode_trial_length
+        
+        self.n_trials = int(round(n_trials))
 
     def stimProcessing(self):
 
