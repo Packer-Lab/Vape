@@ -146,3 +146,44 @@ def frameFluTime(pkl_list, data_folder, legend=False):
     
     if legend:
         plt.legend(labels);
+        
+def downsampleTiff(pkl_list, save_path):
+    
+    for pkl in pkl_list:
+
+        print('Downsampling experiment:', pkl, '             ', end='\r')
+        
+        with open(pkl, 'rb') as f:
+            exp_obj = pickle.load(f)
+        
+        obj_list = [exp_obj.photostim_r, exp_obj.photostim_s]
+
+        if exp_obj.spont.n_frames > 0:
+            obj_list.append(exp_obj.spont)
+
+        if exp_obj.whisker_stim.n_frames > 0:
+            obj_list.append(exp_obj.whisker_stim)
+        
+        for sub_obj in obj_list:
+            
+            tiff_path = sub_obj.tiff_path
+            
+            file_list = os.listdir(tiff_path)
+            for file in file_list:
+                if '.tif' in file:
+                    tiff_file = os.path.join(tiff_path, file)
+  
+            total_frames = range(0,sub_obj.n_frames) #get the range of frames for this experiment
+            start_frames = total_frames[:1000] 
+            end_frames = total_frames[-1000:] 
+            
+            stack_start = tf.imread(tiff_file, key=start_frames)
+            stack_end = tf.imread(tiff_file, key=end_frames)
+            
+            mean_start = np.mean(stack_start, axis=0)
+            mean_end = np.mean(stack_end, axis=0)
+            
+            output_path = os.path.join(save_path, tiff_path.split('/')[-1])
+            
+            tf.imsave(output_path + '_mean_start.tif', mean_start.astype('int16'))
+            tf.imsave(output_path + '_mean_end.tif', mean_end.astype('int16'))

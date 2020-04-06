@@ -449,44 +449,29 @@ class interarealAnalysis():
         print('\nFinding stim frames from:', self.paq_path)
         
         paq = paq_read(self.paq_path)
+        self.frame_clock = paq_data(paq, 'frame_clock', threshold_ttl=True, plot=False)
+        self.stim_times = paq_data(paq, self.stim_channel, threshold_ttl=True, plot=False)
 
-        # find frame times
-        clock_idx = paq['chan_names'].index('frame_clock')
-        clock_voltage = paq['data'][clock_idx, :]
-
-        frame_clock = threshold_detect(clock_voltage, 1)
-
-        # find stim times
-        stim_idx = paq['chan_names'].index(self.stim_channel)
-        stim_volts = paq['data'][stim_idx, :]
-        stim_times = threshold_detect(stim_volts, 1)
-
-        #correct this based on txt file
-        duration_ms = self.stim_dur
-        frame_rate = self.fps/self.n_planes
-        duration_frames = np.ceil((duration_ms/1000)*frame_rate)
-        self.duration_frames = int(duration_frames)
-        print('total stim duration (frames):', int(duration_frames))
-
-        # find stim frames
         self.stim_start_frames = []
 
         for plane in range(self.n_planes):
-            
-            stim_start_frames = []
 
-            for stim in stim_times:
+            stim_start_frames = stim_start_frame(paq, self.stim_channel, 
+                                self.frame_clock, self.stim_times, plane, self.n_planes)
 
-                #the index of the frame immediately preceeding stim
-                stim_start_frame = next(i-1 for i,sample in enumerate(frame_clock[plane::self.n_planes]) if sample - stim >= 0)
-                stim_start_frames.append(stim_start_frame)
-                
             self.stim_start_frames.append(stim_start_frames)
         
-        #sanity check - reduce stim_start_frames until it is below n_frames to catch missing frames
-        while np.amax(self.stim_start_frames) > self.n_frames:
-            for plane in range(self.n_planes):
-                self.stim_start_frames[plane] = self.stim_start_frames[plane][:-1]
+        # calculate number of frames corresponding to stim period
+        duration_ms = self.stim_dur
+        frame_rate = self.fps/self.n_planes
+        duration_frames = np.ceil((duration_ms/1000)*frame_rate) + 1 # +1 as sometimes artifact leaked in to data
+        self.duration_frames = int(duration_frames)
+        print('total stim duration (frames):', int(duration_frames))
+        
+#         #sanity check - reduce stim_start_frames until it is below n_frames to catch missing frames
+#         while np.amax(self.stim_start_frames) > self.n_frames:
+#             for plane in range(self.n_planes):
+#                 self.stim_start_frames[plane] = self.stim_start_frames[plane][:-1]
 
 
     def photostimProcessing(self):
@@ -520,7 +505,7 @@ class interarealAnalysis():
         max_n_trials = (self.n_frames - self.stim_start_frames[0][0])/mode_trial_length
         
         if max_n_trials < 100:
-            self.n_trials = int(floor(max_n_trials))
+            self.n_trials = int(math.floor(max_n_trials))
         else:
             self.n_trials = len(self.stim_start_frames[0])
             
@@ -742,127 +727,60 @@ class interarealAnalysis():
             self.single_sig.append(single_sigs)
 
             
-    def _cellStaProcessing(self, test='t_test'):
+    def _cellStaProcessing(self):
         
         if self.stim_start_frames:
-            
-            #this is the key parameter for the sta, how many frames before and after the stim onset do you want to use
+        
+            self.all_trials = []
+            self.stas = []
+            self.sta_amplitudes = []
+
+            # key parameter for the sta, how many frames before and after the stim onset do you want to use
             self.pre_frames = int(np.ceil(self.fps*0.5)) # 500 ms pre-stim period
             self.post_frames = int(np.ceil(self.fps*3)) # 3000 ms post-stim period
 
-            #list of cell pixel intensity values during each stim on each trial
-            self.all_trials = [] # list 1 = cells, list 2 = trials, list 3 = dff vector
-
-            # the average of every trial
-            self.stas = [] # list 1 = cells, list 2 = sta vector
-
-            self.all_amplitudes = []
-            self.sta_amplitudes = []
-
-            self.t_tests = []
-            self.wilcoxons = []
-
             for plane in range(self.n_planes):
+
+                plane_dff = self.dfof[plane][:,self.frames]
                 
-                raw = self.raw[plane][:,self.frames] 
+                pre, post, _ = test_responsive(plane_dff, self.frame_clock, self.stim_times, 
+                                                         self.pre_frames, self.post_frames, 
+                                                         self.duration_frames)
 
-                all_trials = [] # list 1 = cells, list 2 = trials, list 3 = dff vector
+                # reconstruct trials from pre and post periods
+                pre_trials = np.reshape(pre, (pre.shape[0], self.n_trials, -1))
+                post_trials = np.reshape(post, (post.shape[0], self.n_trials, -1))
+                stim_offset = np.zeros((pre.shape[0], self.n_trials, self.duration_frames))
+                all_trials = np.concatenate((pre_trials, stim_offset, post_trials), axis=2)
 
-                stas = [] # list 1 = cells, list 2 = sta vector
+                self.all_trials.append(all_trials)
 
-                all_amplitudes = []
-                sta_amplitudes = []
+                # scale all_trials to have baseline dfof at 0 
+                all_trials_scaled = np.zeros_like(all_trials)
+                for cell in range(all_trials.shape[0]):
+                    for trial in range(all_trials.shape[1]):
+                        all_trials_scaled[cell][trial] = all_trials[cell][trial] - all_trials[cell][trial][0]
 
-                t_tests = []
-                wilcoxons = []
+                pre_f = all_trials_scaled[:, :, :self.pre_frames]
+                stim_end = self.pre_frames + self.duration_frames
+                post_f = all_trials_scaled[:, :, stim_end : stim_end + self.pre_frames]
 
-                #loop through each cell
-                for i, unit in enumerate(raw):
+                all_amplitudes = np.mean(pre_f, 2) - np.mean(post_f, 2)
+                t_tests = stats.ttest_rel(np.mean(pre_f, 2).transpose(), np.mean(post_f, 2).transpose())
 
-                    trials = []
-                    amplitudes = []
-                    df = []
-                    
-                    # a flat list of all observations before stim occured
-                    pre_obs = []
-                    # a flat list of all observations after stim occured
-                    post_obs = []
-                    
-                    for stim in self.stim_start_frames[plane]:
-                        
-                        # get baseline values from pre_stim
-                        pre_stim_f  = unit[ stim - self.pre_frames : stim ]
-                        baseline = np.mean(pre_stim_f)
+                # calculate stimulus-triggered average trial and scale dfof to 0 for each cell
+                sta = np.mean(self.all_trials[0], axis=1)
+                sta_scaled = [sta[i] - sta[i][0] for i in range(sta.shape[0])]
 
-                        # the whole trial and dfof using baseline
-                        trial = unit[ stim - self.pre_frames : stim + self.post_frames ]
-                        trial = [ ( (f-baseline) / baseline) * 100 for f in trial ] #dff calc
-                        
-                        if trial: #this is because of missing data in t-series, can be removed RL
-                            
-                            trials.append(trial)
-                            
-                            #calc amplitude of response        
-                            pre_f = trial[ : self.pre_frames - 1]
-                            pre_f = np.mean(pre_f)
-                            
-                            avg_post_start = self.pre_frames + ( self.duration_frames + 1 )
-                            avg_post_end = avg_post_start + int(np.ceil(self.fps*0.5)) # post-stim period of 500 ms
-                            
-                            post_f = trial[avg_post_start : avg_post_end]
-                            post_f = np.mean(post_f)
-                            amplitude = post_f - pre_f
-                            amplitudes.append(amplitude)
-                            
-                            # append to flat lists
-                            pre_obs.append(pre_f)
-                            post_obs.append(post_f)
-                        
-                    trials = np.array(trials)
-                    all_trials.append(trials)
-                    
-                    #average amplitudes across trials
-                    amplitudes = np.array(amplitudes)
-                    all_amplitudes.append(amplitudes)
-                    sta_amplitude = np.mean(amplitudes, axis=0)
-                    sta_amplitudes.append(sta_amplitude)
+                sta_scaled = np.array(sta_scaled)
+                self.stas.append(sta_scaled)
 
-                    #average across all trials
-                    sta = np.mean(trials, axis=0)        
-                    stas.append(sta)
-                    
-                    #remove nans from flat lists
-                    pre_obs = [x for x in pre_obs if ~np.isnan(x)]
-                    post_obs = [x for x in post_obs if ~np.isnan(x)]
-                    
-                    #t_test and man whit test pre and post stim (any other test could also be used here)
-                    t_test = stats.ttest_rel(pre_obs, post_obs)
-                    t_tests.append(t_test)
-                    
-#                     wilcoxon = stats.wilcoxon(pre_obs, post_obs)
-#                     wilcoxons.append(wilcoxon)
+                # calculate amplitude of response around stim
+                pre_sta = sta_scaled[:, :self.pre_frames]
+                post_sta = sta_scaled[:, stim_end : stim_end + self.pre_frames]
 
-                self.all_trials.append(np.array(all_trials))
-                self.stas.append(np.array(stas))
-                
-                self.all_amplitudes.append(np.array(all_amplitudes))
-                self.sta_amplitudes.append(np.array(sta_amplitudes))
-
-                self.t_tests.append(np.array(t_tests))
-                self.wilcoxons.append(np.array(wilcoxons))
-            
-#             plt.figure()
-#             plt.plot([avg_post_start] * 2, [-1000, 1000])
-#             plt.plot([avg_post_end] * 2, [-1000, 1000])
-#             plt.plot([self.pre_frames - 1] * 2, [-1000, 1000])
-#             plt.plot([0] * 2, [-1000, 1000])
-#             plt.plot(stas[5])
-#             plt.plot(stas[10])
-#             plt.plot(stas[15])
-#             plt.ylim([-100,200]) 
-
-            self._staSignificance(test)
-            self._singleTrialSignificance()
+                sta_amplitudes = np.mean(post_sta, 1) - np.mean(pre_sta, 1)
+                self.sta_amplitudes.append(sta_amplitudes)
     
     
     def _findS1S2(self, cell_med, s2_borders_path):
@@ -926,17 +844,22 @@ class interarealAnalysis():
             self.cell_x = []
             self.cell_y = []
             self.raw = []
+            self.dfof = []
             self.mean_img = []
 
             for plane in range(self.n_planes):
+                
                 s2p_path = self.s2p_path
                 FminusFneu, _, stat = s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7)
-                ops = np.load(os.path.join(s2p_path,'ops.npy'), allow_pickle=True).item()
-
+                dff = dfof2(FminusFneu)
                 self.raw.append(FminusFneu)
+                self.dfof.append(dff)
+
+                ops = np.load(os.path.join(s2p_path,'ops.npy'), allow_pickle=True).item()
                 self.mean_img.append(ops['meanImg'])
                 self.xoff = ops['xoff']
                 self.yoff = ops['yoff']
+                
                 cell_id = []
                 cell_plane = []
                 cell_med = []

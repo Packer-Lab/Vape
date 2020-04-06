@@ -645,6 +645,7 @@ class interarealPlotting():
     
     def boxplotWhiskerBias(self):
         
+        print('\nNumber of cells responding out of total targeted:')
         #get dataframe
         df = self.df
 
@@ -659,7 +660,7 @@ class interarealPlotting():
         filtered_df = all_groups.filter(lambda x: (x['stim_type'] == 'w').any())
 
         #re-group the dataframe that has been filtered
-        all_whisker_groups = filtered_df.sort_values(['stim_type']).groupby('sheet_name', sort=False)
+        all_whisker_groups = filtered_df.sort_values(['stim_type']).groupby('sheet_name', sort=True)
 
         #iterate through the groups
         for name, group in all_whisker_groups:
@@ -676,7 +677,7 @@ class interarealPlotting():
             #find the probability of response for all cells to whisker stim
             whisker_prob_response = np.array(group.loc[group['stim_type'] == 'w', 'prob_response'])[0]
 
-            #append the probability of response to whisker stim for the responding target cells (STA)
+            #append the probability of response to whisker stim for the responding target cells (STA)  
             ps_target_whisker_response.append(whisker_prob_response[ps_target_responders])
             pr_target_whisker_response.append(whisker_prob_response[pr_target_responders])
 
