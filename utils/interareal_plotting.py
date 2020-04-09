@@ -285,7 +285,7 @@ class interarealPlotting():
         num_whisker_targets = []
         dists = []
         
-        n_trials = np.shape(sub_obj.all_trials)[2]
+        n_trials = np.shape(sub_obj.all_trials)[3]
 
         for trial in range(n_trials):
             responders = [i for i in range(sub_obj.n_units[0]) if sub_obj.single_sig[0][i][trial] == 1]

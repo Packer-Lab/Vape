@@ -84,7 +84,7 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
                 is_cells = np.load(os.path.join(root, file), 
                                    allow_pickle=True)[:, 0]
                 is_cells = np.ndarray.astype(is_cells, 'bool')
-                print('Loading {} traces labelled as cells'
+                print('loading {} traces labelled as cells'
                       .format(sum(is_cells)))
             elif file == 'spks.npy':
                 spks = np.load(os.path.join(root, file), allow_pickle=True)
@@ -108,7 +108,7 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
         return all_cells, spks, stat
 
     else:
-        print('Subtracting neuropil with a coefficient of {}'
+        print('subtracting neuropil with a coefficient of {}'
               .format(neuropil_coeff))
         neuropil_corrected = all_cells - neuropil * neuropil_coeff
         return neuropil_corrected, spks, stat
