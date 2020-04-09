@@ -481,15 +481,15 @@ class interarealPlotting():
                 # Plot scatter of S1 vs. S2
                 x = row.loc[columns[0]]
                 y = row.loc[columns[1]]
-
+                
                 if isinstance(x, np.ndarray) or isinstance(x, list): 
                     ax[plot_index].scatter(x, y, label=row.loc['sheet_name'])
                     ax[plot_index].set_title(name)
 
                     # Plot slope
-                    z = np.polyfit(x, y, 1)
-                    p = np.poly1d(z)
-                    ax[plot_index].plot(x,p(x))
+#                     z = np.polyfit(x, y, 1)
+#                     p = np.poly1d(z)
+#                     ax[plot_index].plot(x,p(x))
     
             plot_index += 1
 

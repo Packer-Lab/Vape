@@ -567,10 +567,6 @@ class interarealAnalysis():
     def _findTargets(self):
         
         print('\nFinding SLM target locations...')
-        self.n_targets = []
-        self.target_coords = []
-        self.target_areas = []
-        self.targeted_cells = []
         
         # load naparm targets file for this experiment
         naparm_path = os.path.join(self.naparm_path, 'Targets')
@@ -625,16 +621,16 @@ class interarealAnalysis():
         
         targets = np.where(target_image_scaled>0)
 
-        targetCoordinates = list(zip(targets[1], targets[0]))
-        print('number of targets:', len(targetCoordinates))
-                
-        self.target_coords = targetCoordinates
-        self.n_targets = len(targetCoordinates)
+        targ_coords = list(zip(targets[1], targets[0]))
+        print('number of targets:', len(targ_coords))
+
+        self.target_coords = targ_coords
+        self.n_targets = len(targ_coords)
 
         target_areas = []
 
         radius = self.spiral_size/self.pix_sz_x # this is effectively double the spiral size
-        for coord in targetCoordinates:
+        for coord in targ_coords:
             target_area = ([item for item in points_in_circle_np(radius, x0=coord[0], y0=coord[1])])
             target_areas.append(target_area)
 
@@ -642,24 +638,31 @@ class interarealAnalysis():
 
         print('searching for targeted cells...')
 
-        for cell in range(self.n_units[0]):
-            flag = 0
-            
-            for x, y in zip(self.cell_x[0][cell], self.cell_y[0][cell]):
-                for target in range(self.n_targets):
-                    for a, b in self.target_areas[target]:
-                        if x == a and y == b:
-                            flag = 1
+        targ_img = np.zeros([frame_x, frame_y], dtype='uint16')
 
-            if flag==1:
-                self.targeted_cells.append(1)
-            else:
-                self.targeted_cells.append(0)
+        target_areas = np.array(target_areas)
 
-        self.n_targeted_cells = len([i for i in self.targeted_cells if i == 1])
+        targ_img[target_areas[:,:,1], target_areas[:,:,0]] = 1
+
+        cell_img = np.zeros([frame_x, frame_y], dtype='uint16')
+
+        cell_x = np.array(self.cell_x)
+        cell_y = np.array(self.cell_y)
+
+        for i,coord in enumerate(zip(cell_x[0], cell_y[0])):
+            cell_img[coord] = i+1
+
+        targ_cell = cell_img*targ_img
+
+        targ_cell_ids = np.unique(targ_cell)[1:]
+
+        self.targeted_cells = np.zeros([self.n_units[0]], dtype='bool')
+        self.targeted_cells[targ_cell_ids] = True
+
+        self.n_targeted_cells = np.sum(self.targeted_cells)
 
         print('search completed.')
-        print('number of targeted cells: ', len([i for i in self.targeted_cells if i == 1]))
+        print('number of targeted cells: ', self.n_targeted_cells)
 
         
     def _staSignificance(self, test='t_test'):
