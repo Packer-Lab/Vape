@@ -17,7 +17,7 @@ import csv
 import bisect
 
 from random import randint
-from scipy import stats
+from scipy import stats, signal
 
 from utils.gsheets_importer import gsheet2df, split_df, path_conversion, path_finder
 from utils.paq2py import *
@@ -237,6 +237,8 @@ class interarealProcessing():
         self.spont.targeted_cells = self.photostim_r.targeted_cells
         self.spont.n_targets = self.photostim_r.n_targets
 
+                
+        
 class interarealAnalysis():
 
     
@@ -621,7 +623,7 @@ class interarealAnalysis():
         
         targets = np.where(target_image_scaled>0)
 
-        targ_coords = list(zip(targets[1], targets[0]))
+        targ_coords = list(zip(targets[0], targets[1]))
         print('number of targets:', len(targ_coords))
 
         self.target_coords = targ_coords
@@ -631,8 +633,13 @@ class interarealAnalysis():
 
         radius = self.spiral_size/self.pix_sz_x # this is effectively double the spiral size
         for coord in targ_coords:
-            target_area = ([item for item in points_in_circle_np(radius, x0=coord[0], y0=coord[1])])
-            target_areas.append(target_area)
+            target_area = np.array([item for item in points_in_circle_np(radius, x0=coord[0], y0=coord[1])])
+            if not any([max(target_area[:,1]) > frame_x,
+                        max(target_area[:,0]) > frame_y,
+                        min(target_area[:,1]) < 0,
+                        min(target_area[:,0]) < 0
+                       ]):
+                target_areas.append(target_area)
 
         self.target_areas = target_areas
 
@@ -643,7 +650,7 @@ class interarealAnalysis():
         target_areas = np.array(target_areas)
 
         targ_img[target_areas[:,:,1], target_areas[:,:,0]] = 1
-
+ 
         cell_img = np.zeros([frame_x, frame_y], dtype='uint16')
 
         cell_x = np.array(self.cell_x)
@@ -654,7 +661,7 @@ class interarealAnalysis():
 
         targ_cell = cell_img*targ_img
 
-        targ_cell_ids = np.unique(targ_cell)[1:]
+        targ_cell_ids = np.unique(targ_cell)[1:]-1
 
         self.targeted_cells = np.zeros([self.n_units[0]], dtype='bool')
         self.targeted_cells[targ_cell_ids] = True
@@ -759,8 +766,18 @@ class interarealAnalysis():
 
                     # make flu_trial from plane_dff
                     flu_trial = plane_dff[:,trial_frames]
+                    
+                    # detrend the dfof trace for all but whisker_stim trials
+                    if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
+                        stim_end = self.pre_frames + self.duration_frames
 
-                    # scale flu_trial to 2 second baseline
+                        # detrend only the flu_trial outside of stim artifact
+                        if flu_trial.shape[1] > stim_end:
+                            flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
+                            flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
+                            flu_trial = np.insert(flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
+                    
+                    # baseline flu_trial to first 2 seconds
                     baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
                     baseline_flu_stack = np.repeat(baseline_flu, flu_trial.shape[1]).reshape(flu_trial.shape)
                     flu_trial = flu_trial - baseline_flu_stack

@@ -28,6 +28,7 @@ def points_in_circle_np(radius, x0=0, y0=0, ):
     for x, y in zip(x_[x], y_[y]):
         yield x, y
 
+        
 def staMovie(output_dir, pkl_list=False):
         
     plane = 0
@@ -83,7 +84,7 @@ def staMovie(output_dir, pkl_list=False):
 
             tf.imwrite(output_path, dff_stack)
             print('STA movie made for', np.shape(trial_stack)[0], 'trials:', output_path)
-    
+            
     
 def cellFluTime(pkl_list):
         
@@ -146,6 +147,7 @@ def frameFluTime(pkl_list, data_folder, legend=False):
     
     if legend:
         plt.legend(labels);
+        
         
 def downsampleTiff(pkl_list, save_path):
     
