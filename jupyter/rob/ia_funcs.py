@@ -189,3 +189,112 @@ def downsampleTiff(pkl_list, save_path):
             
             tf.imsave(output_path + '_mean_start.tif', mean_start.astype('int16'))
             tf.imsave(output_path + '_mean_end.tif', mean_end.astype('int16'))
+    
+    
+def s2pMeanImage(s2p_path):
+        
+    os.chdir(s2p_path)
+        
+    ops = np.load('ops.npy', allow_pickle=True).item()
+        
+    mean_img = ops['meanImg']
+
+    mean_img = np.array(mean_img, dtype='uint16')
+    
+    return mean_img
+    
+    
+def s2pMasks(s2p_path, cell_ids):
+    
+    os.chdir(s2p_path)
+
+    stat = np.load('stat.npy', allow_pickle=True)
+    ops = np.load('ops.npy', allow_pickle=True).item()
+    iscell = np.load('iscell.npy', allow_pickle=True)           
+
+    img = np.zeros((ops['Ly'], ops['Lx']), dtype='uint16')
+
+    for n in range(0,len(iscell)):
+        if n in cell_ids:
+            ypix = stat[n]['ypix']
+            xpix = stat[n]['xpix']
+            img[ypix,xpix] = n
+
+    return img
+    
+    
+def s2pMaskStack(pkl_list, stam_save_path, parent_folder):
+        
+    for pkl in pkl_list:
+                
+        print('Retrieving s2p masks for:', pkl, '             ', end='\r')
+            
+        with open(pkl, 'rb') as f:
+            exp_obj = pickle.load(f)
+        
+        cell_id_list = [list(range(1,99999)), # all
+                        exp_obj.photostim_r.cell_id[0], # cells
+                        [exp_obj.photostim_r.cell_id[0][i] for i,b in enumerate(exp_obj.photostim_r.cell_s1[0]) if b==False], # s2 cells
+                        [exp_obj.photostim_r.cell_id[0][i] for i,b in enumerate(exp_obj.photostim_r.targeted_cells) if b==1], # pr cells
+                        [exp_obj.photostim_s.cell_id[0][i] for i,b in enumerate(exp_obj.photostim_s.targeted_cells) if b==1], # pr cells
+                       ]
+                 
+        # whisker cells
+        cell_id_list.append([exp_obj.whisker_stim.cell_id[0][i] for i,b in enumerate(exp_obj.whisker_stim.sta_sig[0]) if b==1])
+            
+        stack = np.empty((0, exp_obj.photostim_r.frame_y, exp_obj.photostim_r.frame_x), dtype='uint16')
+        
+        s2p_path = exp_obj.s2p_path
+        
+        mean_img = s2pMeanImage(s2p_path)
+        mean_img = np.expand_dims(mean_img, axis=0)
+
+        stack = np.append(stack, mean_img, axis=0)
+        
+        for cell_ids in cell_id_list:
+            mask_img = s2pMasks(s2p_path, cell_ids)
+            mask_img = np.expand_dims(mask_img, axis=0)
+            stack = np.append(stack, mask_img, axis=0)
+        
+        for file in os.listdir(stam_save_path):
+            if all(s in file for s in ['AvgImage', exp_obj.photostim_r.tiff_path.split('/')[-1]]):
+                pr_sta_img = tf.imread(os.path.join(stam_save_path, file))
+                pr_sta_img = np.expand_dims(pr_sta_img, axis=0)
+            elif all(s in file for s in ['AvgImage', exp_obj.photostim_s.tiff_path.split('/')[-1]]):
+                ps_sta_img = tf.imread(os.path.join(stam_save_path, file))
+                ps_sta_img = np.expand_dims(ps_sta_img, axis=0)
+                
+        stack = np.append(stack, pr_sta_img, axis=0)
+        stack = np.append(stack, ps_sta_img, axis=0)
+        
+        pr_targ_img = np.zeros((exp_obj.photostim_r.frame_y, exp_obj.photostim_r.frame_x), dtype='uint16')
+        targ_areas = exp_obj.photostim_r.target_areas
+        
+        for targ_area in targ_areas:
+            for coord in targ_area:
+                pr_targ_img[coord[0], coord[1]] = 255
+        pr_targ_img = np.expand_dims(pr_targ_img, axis=0)
+        
+        ps_targ_img = np.zeros((exp_obj.photostim_r.frame_y, exp_obj.photostim_r.frame_x), dtype='uint16')
+        targ_areas = exp_obj.photostim_s.target_areas
+        
+        for targ_area in targ_areas:
+            for coord in targ_area:
+                ps_targ_img[coord[0], coord[1]] = 255
+        
+        ps_targ_img = np.expand_dims(ps_targ_img, axis=0)
+        
+        stack = np.append(stack, pr_targ_img, axis=0)
+        stack = np.append(stack, ps_targ_img, axis=0)
+        
+        # stack is now: all_rois, all_cells, s2_cells, pr_cells, ps_cells, whisker, pr_sta_img, ps_sta_img, mean_img
+        c,y,x = stack.shape
+        stack.shape = 1, 1, c, y, x, 1 # dimensions in TZCYXS order
+        
+        x_pix = exp_obj.photostim_r.pix_sz_x
+        y_pix = exp_obj.photostim_r.pix_sz_y
+        
+        save_path = os.path.join(parent_folder, pkl.split('/')[-1][:-4] + '_s2p_masks.tif')
+        
+        tf.imwrite(save_path, stack, imagej=True, resolution=(y_pix, x_pix), photometric='minisblack')
+            

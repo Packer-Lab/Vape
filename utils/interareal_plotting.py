@@ -661,7 +661,9 @@ class interarealPlotting():
 
         #re-group the dataframe that has been filtered
         all_whisker_groups = filtered_df.sort_values(['stim_type']).groupby('sheet_name', sort=True)
-
+        
+        exp_names = []
+        
         #iterate through the groups
         for name, group in all_whisker_groups:
 
@@ -671,6 +673,7 @@ class interarealPlotting():
 
             #print the number of targets responding out of total number of targeted cells
             print(name)
+            exp_names.append(name)
             print('Similar:', list(ps_target_responders).count(True), 'out of', int(group.loc[group['stim_type'] == 'ps', 'n_targeted_cells']))
             print('Random:', list(pr_target_responders).count(True), 'out of', int(group.loc[group['stim_type'] == 'pr', 'n_targeted_cells']))
 
@@ -683,8 +686,29 @@ class interarealPlotting():
 
         #plot the result in boxplots for every animal across the two photostim types
         fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15,5), sharey=True);
+        
+        for i, resps in enumerate([ps_target_whisker_response, pr_target_whisker_response]):
+            dict_resp = {'exp_name' : exp_names, 'p_resp' : resps}
+            df_resp = pd.DataFrame.from_dict(dict_resp)
+        
+            lst_col = 'p_resp'
 
-        ax[0].boxplot(ps_target_whisker_response);
-        ax[0].set_title('photostim_similar');
-        ax[1].boxplot(pr_target_whisker_response);
-        ax[1].set_title('photostim_random');
+            ps_df = pd.DataFrame({
+                    col:np.repeat(df_resp[col].values, df_resp[lst_col].str.len())
+                    for col in df_resp.columns.drop(lst_col)}
+                ).assign(**{lst_col:np.concatenate(df_resp[lst_col].values)})[df_resp.columns]
+        
+            plt.sca(ax[i])
+            sns.boxplot(x='exp_name', y='p_resp', data=ps_df, width=0.2)
+            sns.swarmplot(x='exp_name', y='p_resp', data=ps_df, color='k', size=5)
+            plt.xticks(
+                rotation=45, 
+                horizontalalignment='right',
+                fontweight='light',
+                fontsize='x-large'  
+            )
+
+#         ax[0].boxplot(ps_target_whisker_response);
+#         ax[0].set_title('photostim_similar');
+#         ax[1].boxplot(pr_target_whisker_response);
+#         ax[1].set_title('photostim_random');

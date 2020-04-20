@@ -275,6 +275,7 @@ class interarealAnalysis():
             print('No metadata for this', self.stim_type, 'stim experiment')
             print('----------------------------------------------------------------')
     
+    
     def _getPVStateShard(self, path, key):
 
         value = []
@@ -471,7 +472,7 @@ class interarealAnalysis():
         
         # calculate number of frames corresponding to stim period
         duration_ms = self.stim_dur
-        frame_rate = self.fps/self.n_planes
+        frame_rate = self.fps
         duration_frames = np.ceil((duration_ms/1000)*frame_rate) + 1 # +1 for worst case scenarios
         self.duration_frames = int(duration_frames)
         print('total stim duration (frames):', int(duration_frames))
@@ -503,7 +504,7 @@ class interarealAnalysis():
 
         self.stim_dur = 1000 # total whisker stim duration
         self.paqProcessing()
-        self.duration_frames = 0 # don't need to exclude stim artifact for whisker_stim
+#         self.duration_frames = 0 # don't need to exclude stim artifact for whisker_stim
         
         # calculate number of trials that could fit in the t-series
         # only really applicable for t-series with data loss at end of t-series
@@ -524,48 +525,255 @@ class interarealAnalysis():
             self.whiskerStimProcessing()
         if any(s in self.stim_type for s in ['pr', 'ps']):
             self.photostimProcessing()
+    
+    
+    def _findS1S2(self, cell_med, s2_borders_path):
+    
+        y = cell_med[0]
+        x = cell_med[1]
+
+        for path in os.listdir(s2_borders_path):
+            if all(s in path for s in ['.csv', self.sheet_name]):
+                csv_path = os.path.join(s2_borders_path, path)
+
+        xline = []
+        yline = []
+
+        with open(csv_path) as csv_file:
+            csv_file = csv.DictReader(csv_file, fieldnames=None, dialect='excel')
+
+            for row in csv_file:
+                xline.append(int(row['xcoords']))
+                yline.append(int(row['ycoords']))
+        
+        #assumption = line is monotonic
+        line_argsort = np.argsort(yline)
+        xline = np.array(xline)[line_argsort]
+        yline = np.array(yline)[line_argsort]
+        
+        i = bisect.bisect(yline, y)
+        if i >= len(yline) : i = len(yline)-1
+        elif i == 0 : i = 1
+        
+        frame_x = int(self.frame_x/2)
+        half_frame_y = int(self.frame_y/2)
+
+        d = (x - xline[i])*(yline[i-1] - yline[i]) - (y-yline[i])*(xline[i-1]-xline[i])
+
+        ds1 = (0 - xline[i])*(yline[i-1] - yline[i]) - (half_frame_y-yline[i])*(xline[i-1]-xline[i])
+        ds2 = (frame_x - xline[i])*(yline[i-1] - yline[i]) - (half_frame_y-yline[i])*(xline[i-1]-xline[i])
+
+        if np.sign(d) == np.sign(ds1):
+            return True
+        elif np.sign(d) == np.sign(ds2):
+            return False
+        else:
+            return False
+        
+            
+    def _retrieveS2pData(self):
+        
+        self.cell_id = []
+        self.n_units = []
+        self.cell_plane = []
+        self.cell_med = []
+        self.cell_s1 = []
+        self.cell_x = []
+        self.cell_y = []
+        self.raw = []
+        self.dfof = []
+        self.mean_img = []
+
+        for plane in range(self.n_planes):
+                
+            s2p_path = self.s2p_path
+            FminusFneu, _, stat = s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7)
+            dff = dfof2(FminusFneu)
+            self.raw.append(FminusFneu[:,self.frames])
+            self.dfof.append(dff[:,self.frames])
+
+            ops = np.load(os.path.join(s2p_path,'ops.npy'), allow_pickle=True).item()
+            self.mean_img.append(ops['meanImg'])
+            self.xoff = ops['xoff']
+            self.yoff = ops['yoff']
+                
+            cell_id = []
+            cell_plane = []
+            cell_med = []
+            cell_s1 = []
+            cell_x = []
+            cell_y = []
+                
+            for cell,s in enumerate(stat):
+                cell_id.append(s['original_index']) # stat is an np array of dictionaries!
+                cell_med.append(s['med'])
+                cell_s1.append(self._findS1S2(s['med'], s2_borders_path))
+                
+                cell_x.append(s['xpix'])
+                cell_y.append(s['ypix'])
+                
+            self.cell_id.append(cell_id)
+            self.n_units.append(len(self.cell_id[plane]))
+            self.cell_med.append(cell_med)
+            self.cell_s1.append(cell_s1)
+            self.cell_x.append(cell_x)
+            self.cell_y.append(cell_y)
+
+            num_units = FminusFneu.shape[0]
+            cell_plane.extend([plane]*num_units)
+            self.cell_plane.append(cell_plane)
+    
+    
+    def _staSignificance(self, test='t_test'):
+        
+        self.sta_sig = []
+        self.sta_sig_nomulti = []
+        
+        for plane in range(self.n_planes):
+            
+            #set this to true if you want to multiple comparisons correct for the number of cells
+            multi_comp_correction = True
+            if not multi_comp_correction: 
+                divisor = 1
+            else:
+                divisor = self.n_units[plane]
+                
+            p_vals = self.t_tests[plane]
+
+            if multi_comp_correction:
+                print('performing t-test on cells with multiple comparisons correction')
+            else:
+                print('performing t-test on cells without mutliple comparisons correction')
+
+            sig_units = []
+            nomulti_sig_units = []
+            
+            for _,p in enumerate(p_vals):
+                # unit_index = self.cell_id[plane][i]
+
+                if p < 0.05:
+                    nomulti_sig_units.append(True)
+                else:
+                    nomulti_sig_units.append(False)
+                if p < (0.05 / divisor):
+                    sig_units.append(True) #significant units
+                else:
+                    sig_units.append(False) 
+
+            self.sta_sig.append(sig_units)  
+            self.sta_sig_nomulti.append(nomulti_sig_units)
+    
+    
+    def _singleTrialSignificance(self):
+        
+        self.single_sig = [] # single trial significance value for each trial for each cell in each plane
+
+        for plane in range(self.n_planes):
+
+            single_sigs = []
+            
+            for cell,_ in enumerate(self.cell_id[plane]):
+                
+                single_sig = []
+
+                for trial in range(len(self.all_trials[0][0][0])):
+                    
+                    pre_f_trial  = self.all_trials[plane][cell][ : self.pre_frames, trial]
+                    std = np.std(pre_f_trial)
+
+                    if np.absolute(self.all_amplitudes[plane][cell][trial]) >= 2*std:
+                        single_sig.append(True)
+                    else:
+                        single_sig.append(False)
+                
+                single_sigs.append(single_sig)
+            
+            # [plane x cell x trial]
+            self.single_sig.append(single_sigs)
 
             
-    def _saveS2pMasks(self, cell_ids, save_name):
+    def _cellStaProcessing(self):
+        
+        if self.stim_start_frames:
+    
+            # pre-allocated empty lists
+            self.all_trials = []
+            self.all_amplitudes = []
+            self.stas = []
+            self.sta_amplitudes = []
+            self.t_tests = []
 
-        #create and save the s2p cell masks, the targeted cell masks and the mean image
-        s2p_path = self.s2p_path
-        exp_name = os.path.basename(self.tiff_path)
+            self.pre_frames = int(np.ceil(self.fps*2)) # pre-stim period to include in trial
+            self.post_frames = int(np.ceil(self.fps*10)) # post-stim period to include in trial
+            self.test_frames = int(np.ceil(self.fps*0.5)) # frames to test for effect pre and post stim
 
-        os.chdir(s2p_path)
+            for plane in range(self.n_planes):
 
-        stat = np.load('stat.npy', allow_pickle=True)
-        ops = np.load('ops.npy', allow_pickle=True).item()
-        iscell = np.load('iscell.npy', allow_pickle=True)           
+                plane_dff = self.dfof[plane]
 
-        im = np.zeros((ops['Ly'], ops['Lx']), dtype='uint16')
+                # make trial arrays from entire plane_dff [plane x cell x frame x trial]
+                for i, stim in enumerate(self.stim_start_frames[plane]):
+                    # use stim start frames and get before and after period based on pre_ or post_frames
+                    trial_frames = np.s_[stim - self.pre_frames : stim + self.post_frames]
 
-        for n in range(0,len(iscell)):
-            if n in cell_ids:
-                ypix = stat[n]['ypix']
-                xpix = stat[n]['xpix']
-                im[ypix,xpix] = n
+                    # make flu_trial from plane_dff
+                    flu_trial = plane_dff[:,trial_frames]
+                    
+                    # detrend the dfof trace for all but whisker_stim trials
+                    if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
+                        stim_end = self.pre_frames + self.duration_frames
 
-        tf.imwrite(exp_name + '_' + save_name + '.tif', im)
+                        # detrend only the flu_trial outside of stim artifact
+                        if flu_trial.shape[1] > stim_end:
+                            flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
+                            flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
+                            flu_trial = np.insert(flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
+                    
+                    # baseline flu_trial to first 2 seconds
+                    baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
+                    baseline_flu_stack = np.repeat(baseline_flu, flu_trial.shape[1]).reshape(flu_trial.shape)
+                    flu_trial = flu_trial - baseline_flu_stack
+
+                    # only append trials of the correct length - will catch corrupt/incomplete data and not include
+                    if i == 0:
+                        flu_array = flu_trial
+                        flu_trial_shape = flu_trial.shape[1]
+                    else:
+                        if flu_trial.shape[1] == flu_trial_shape:
+                            flu_array = np.dstack((flu_array, flu_trial))
+                        else:
+                            print('**incomplete trial detected and not appended to flu_array**')
+                
+                self.all_trials.append(flu_array)
+
+                # make trial amplitudes, [plane x cell x trial]
+                pre_trial_frames = np.s_[self.pre_frames - self.test_frames : self.pre_frames]
+                stim_end = self.pre_frames + self.duration_frames
+                post_trial_frames = np.s_[stim_end : stim_end + self.test_frames]
+
+                pre_array = np.mean(flu_array[:, pre_trial_frames, :], axis=1)
+                post_array = np.mean(flu_array[:, post_trial_frames, :], axis=1)
+                all_amplitudes = post_array - pre_array
+                self.all_amplitudes.append(all_amplitudes)
+                
+                # make stas, [plane x cell x frame]
+                stas = np.mean(flu_array, axis=2)
+                self.stas.append(stas)
+
+                # make sta amplitudes, [plane x cell]
+                pre_sta = np.mean(stas[:, pre_trial_frames], axis=1)
+                post_sta = np.mean(stas[:, post_trial_frames], axis=1)
+                sta_amplitudes = post_sta - pre_sta
+                self.sta_amplitudes.append(sta_amplitudes)
+
+                # significance test, [cell]
+                t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
+                self.t_tests.append(t_tests[1][:])
+
+            self._singleTrialSignificance()
+            self._staSignificance()
     
     
-    def _saveMeanImage(self):
-        
-        print('saving mean image...')
-        
-        s2p_path = self.s2p_path
-        exp_name = os.path.basename(self.tiff_path)
-
-        os.chdir(s2p_path)
-        
-        ops = np.load('ops.npy', allow_pickle=True).item()
-        
-        mean_img = ops['meanImg']
-
-        mean_img = np.array(mean_img, dtype='uint16')
-        tf.imwrite(exp_name + '_mean_image.tif', mean_img)
-        
-        
     def _findTargets(self):
         
         print('\nFinding SLM target locations...')
@@ -670,200 +878,6 @@ class interarealAnalysis():
 
         print('search completed.')
         print('number of targeted cells: ', self.n_targeted_cells)
-
-        
-    def _staSignificance(self, test='t_test'):
-        
-        self.sta_sig = []
-        self.sta_sig_nomulti = []
-        
-        for plane in range(self.n_planes):
-            
-            #set this to true if you want to multiple comparisons correct for the number of cells
-            multi_comp_correction = True
-            if not multi_comp_correction: 
-                divisor = 1
-            else:
-                divisor = self.n_units[plane]
-                
-            p_vals = self.t_tests[plane]
-
-            if multi_comp_correction:
-                print('performing t-test on cells with multiple comparisons correction')
-            else:
-                print('performing t-test on cells without mutliple comparisons correction')
-
-            sig_units = []
-            nomulti_sig_units = []
-            
-            for _,p in enumerate(p_vals):
-                # unit_index = self.cell_id[plane][i]
-
-                if p < 0.05:
-                    nomulti_sig_units.append(True)
-                else:
-                    nomulti_sig_units.append(False)
-                if p < (0.05 / divisor):
-                    sig_units.append(True) #significant units
-                else:
-                    sig_units.append(False) 
-
-            self.sta_sig.append(sig_units)  
-            self.sta_sig_nomulti.append(nomulti_sig_units)
-    
-    
-    def _singleTrialSignificance(self):
-        
-        self.single_sig = [] # single trial significance value for each trial for each cell in each plane
-
-        for plane in range(self.n_planes):
-
-            single_sigs = []
-            
-            for cell,_ in enumerate(self.cell_id[plane]):
-                
-                single_sig = []
-
-                for trial in range(len(self.all_trials[0][0][0])):
-                    
-                    pre_f_trial  = self.all_trials[plane][cell][ : self.pre_frames, trial]
-                    std = np.std(pre_f_trial)
-
-                    if np.absolute(self.all_amplitudes[plane][cell][trial]) >= 2*std:
-                        single_sig.append(True)
-                    else:
-                        single_sig.append(False)
-                
-                single_sigs.append(single_sig)
-            
-            # [plane x cell x trial]
-            self.single_sig.append(single_sigs)
-
-            
-    def _cellStaProcessing(self):
-        
-        if self.stim_start_frames:
-    
-            # pre-allocated empty lists
-            self.all_trials = []
-            self.all_amplitudes = []
-            self.stas = []
-            self.sta_amplitudes = []
-            self.t_tests = []
-
-            self.pre_frames = int(np.ceil(self.fps*2)) # pre-stim period to include in trial
-            self.post_frames = int(np.ceil(self.fps*10)) # post-stim period to include in trial
-            self.test_frames = int(np.ceil(self.fps*0.5)) # frames to test for effect pre and post stim
-
-            for plane in range(self.n_planes):
-
-                plane_dff = self.dfof[plane]
-
-                # make trial arrays from entire plane_dff [plane x cell x frame x trial]
-                for i, stim in enumerate(self.stim_start_frames[plane]):
-                    # use stim start frames and get before and after period based on pre_ or post_frames
-                    trial_frames = np.s_[stim - self.pre_frames : stim + self.duration_frames + self.post_frames]
-
-                    # make flu_trial from plane_dff
-                    flu_trial = plane_dff[:,trial_frames]
-                    
-                    # detrend the dfof trace for all but whisker_stim trials
-                    if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
-                        stim_end = self.pre_frames + self.duration_frames
-
-                        # detrend only the flu_trial outside of stim artifact
-                        if flu_trial.shape[1] > stim_end:
-                            flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
-                            flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
-                            flu_trial = np.insert(flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
-                    
-                    # baseline flu_trial to first 2 seconds
-                    baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
-                    baseline_flu_stack = np.repeat(baseline_flu, flu_trial.shape[1]).reshape(flu_trial.shape)
-                    flu_trial = flu_trial - baseline_flu_stack
-
-                    # only append trials of the correct length - will catch corrupt/incomplete data and not include
-                    if i == 0:
-                        flu_array = flu_trial
-                        flu_trial_shape = flu_trial.shape[1]
-                    else:
-                        if flu_trial.shape[1] == flu_trial_shape:
-                            flu_array = np.dstack((flu_array, flu_trial))
-                        else:
-                            print('**incomplete trial detected and not appended to flu_array**')
-                
-                self.all_trials.append(flu_array)
-
-                # make trial amplitudes, [plane x cell x trial]
-                pre_trial_frames = np.s_[self.pre_frames - self.test_frames : self.pre_frames]
-                stim_end = self.pre_frames + self.duration_frames
-                post_trial_frames = np.s_[stim_end : stim_end + self.test_frames]
-
-                pre_array = np.mean(flu_array[:, pre_trial_frames, :], axis=1)
-                post_array = np.mean(flu_array[:, post_trial_frames, :], axis=1)
-                all_amplitudes = post_array - pre_array
-                self.all_amplitudes.append(all_amplitudes)
-                
-                # make stas, [plane x cell x frame]
-                stas = np.mean(flu_array, axis=2)
-                self.stas.append(stas)
-
-                # make sta amplitudes, [plane x cell]
-                pre_sta = np.mean(stas[:, pre_trial_frames], axis=1)
-                post_sta = np.mean(stas[:, post_trial_frames], axis=1)
-                sta_amplitudes = post_sta - pre_sta
-                self.sta_amplitudes.append(sta_amplitudes)
-
-                # significance test, [cell]
-                t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
-                self.t_tests.append(t_tests[1][:])
-
-            self._singleTrialSignificance()
-            self._staSignificance()
-    
-    def _findS1S2(self, cell_med, s2_borders_path):
-    
-        y = cell_med[0]
-        x = cell_med[1]
-
-        #delete this, otherwise it'll be called every time, add as argument somewhere
-        for path in os.listdir(s2_borders_path):
-            if all(s in path for s in ['.csv', self.sheet_name]):
-                csv_path = os.path.join(s2_borders_path, path)
-
-        xline = []
-        yline = []
-
-        with open(csv_path) as csv_file:
-            csv_file = csv.DictReader(csv_file, fieldnames=None, dialect='excel')
-
-            for row in csv_file:
-                xline.append(int(row['xcoords']))
-                yline.append(int(row['ycoords']))
-        
-        #assumption = line is monotonic
-        line_argsort = np.argsort(yline)
-        xline = np.array(xline)[line_argsort]
-        yline = np.array(yline)[line_argsort]
-        
-        i = bisect.bisect(yline, y)
-        if i >= len(yline) : i = len(yline)-1
-        elif i == 0 : i = 1
-        
-        frame_x = int(self.frame_x/2)
-        half_frame_y = int(self.frame_y/2)
-
-        d = (x - xline[i])*(yline[i-1] - yline[i]) - (y-yline[i])*(xline[i-1]-xline[i])
-
-        ds1 = (0 - xline[i])*(yline[i-1] - yline[i]) - (half_frame_y-yline[i])*(xline[i-1]-xline[i])
-        ds2 = (frame_x - xline[i])*(yline[i-1] - yline[i]) - (half_frame_y-yline[i])*(xline[i-1]-xline[i])
-
-        if np.sign(d) == np.sign(ds1):
-            return True
-        elif np.sign(d) == np.sign(ds2):
-            return False
-        else:
-            return False
     
     
     def s2pAnalysis(self, s2_borders_path, subtract_neuropil=True):
@@ -877,86 +891,16 @@ class interarealAnalysis():
             print('______________________________________________________________________')
             print('\nProcessing s2p data for this', self.stim_type, 'experiment type')
             print('______________________________________________________________________\n')
-
-            self.cell_id = []
-            self.n_units = []
-            self.cell_plane = []
-            self.cell_med = []
-            self.cell_s1 = []
-            self.cell_x = []
-            self.cell_y = []
-            self.raw = []
-            self.dfof = []
-            self.mean_img = []
-
-            for plane in range(self.n_planes):
-                
-                s2p_path = self.s2p_path
-                FminusFneu, _, stat = s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7)
-                dff = dfof2(FminusFneu)
-                self.raw.append(FminusFneu[:,self.frames])
-                self.dfof.append(dff[:,self.frames])
-
-                ops = np.load(os.path.join(s2p_path,'ops.npy'), allow_pickle=True).item()
-                self.mean_img.append(ops['meanImg'])
-                self.xoff = ops['xoff']
-                self.yoff = ops['yoff']
-                
-                cell_id = []
-                cell_plane = []
-                cell_med = []
-                cell_s1 = []
-                cell_x = []
-                cell_y = []
-                
-                for cell,s in enumerate(stat):
-                    cell_id.append(s['original_index']) # stat is an np array of dictionaries!
-                    cell_med.append(s['med'])
-                    cell_s1.append(self._findS1S2(s['med'], s2_borders_path))
-                    
-                    cell_x.append(s['xpix'])
-                    cell_y.append(s['ypix'])
-                
-                self.cell_id.append(cell_id)
-                self.n_units.append(len(self.cell_id[plane]))
-                self.cell_med.append(cell_med)
-                self.cell_s1.append(cell_s1)
-                self.cell_x.append(cell_x)
-                self.cell_y.append(cell_y)
-
-                num_units = FminusFneu.shape[0]
-                cell_plane.extend([plane]*num_units)
-                self.cell_plane.append(cell_plane)
-
+            
+            # collect data from s2p
+            self._retrieveS2pData()
+            
+            # process s2p data
             self._cellStaProcessing()
             
+            # target cells
             if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                 self._findTargets()
-            
-                # Save s2p cell masks for different identities of cells
-                #targets
-                cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.targeted_cells) if b==1]
-                save_name = 'target_cell_masks'
-                print('creating and savings target cell masks from s2p...')
-                self._saveS2pMasks(cell_ids, save_name)
-            
-            #whisker responsive cells
-            if self.stim_type == 'w':
-                cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.sta_sig[0]) if b==1]
-                save_name = 'whisker_responsive_masks'
-                print('creating and savings whisker responsive cell masks from s2p...')
-                self._saveS2pMasks(cell_ids, save_name)
+
                 
-            #all cells
-            cell_ids = self.cell_id[0]
-            save_name = 'cell_masks'
-            print('creating and savings all cell masks from s2p...')
-            self._saveS2pMasks(cell_ids, save_name)
             
-            #s2 cells
-            cell_ids = [self.cell_id[0][i] for i,b in enumerate(self.cell_s1[0]) if b==False]
-            save_name = 's2_masks'
-            print('creating and savings s2 cell masks from s2p...')
-            self._saveS2pMasks(cell_ids, save_name)
-                        
-            self._saveMeanImage()
