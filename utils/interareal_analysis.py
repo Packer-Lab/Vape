@@ -29,6 +29,8 @@ from suite2p.run_s2p import run_s2p
 
 from settings import ops
 
+
+
 class interarealProcessing():
 
     
@@ -237,7 +239,30 @@ class interarealProcessing():
         self.spont.targeted_cells = self.photostim_r.targeted_cells
         self.spont.n_targets = self.photostim_r.n_targets
 
-                
+        
+    def _targetedWhiskerCells(self, exp_obj):
+        
+        trial_responders = exp_obj.trial_sig_dff[0]
+
+        targeted_cells = np.repeat(exp_obj.targeted_cells[..., None], 
+                                   trial_responders.shape[1], 1) # [..., None] is a quick way to expand_dims
+
+        whisker_cells = np.repeat(self.whisker_stim.sta_sig[0][..., None],
+                                  trial_responders.shape[1], 1)
+
+        targeted_w_responders = targeted_cells & whisker_cells & trial_responders
+
+        return targeted_w_responders
+    
+    
+    def whiskerTargets(self):
+        
+        if self.whisker_stim.n_frames > 0:
+            self.photostim_r.trial_w_targets = self._targetedWhiskerCells(self.photostim_r)
+            self.photostim_s.trial_w_targets = self._targetedWhiskerCells(self.photostim_s)
+            self.spont.trial_w_targets = self._targetedWhiskerCells(self.spont)
+    
+    
         
 class interarealAnalysis():
 
@@ -488,7 +513,7 @@ class interarealAnalysis():
         self._parseNAPARMxml()
         self._parseNAPARMgpl()
 
-        single_stim = self.single_stim_dur*self.n_shots
+        single_stim = self.single_stim_dur * self.n_shots
         total_single_stim = single_stim + self.inter_point_delay 
         
         total_multi_stim = total_single_stim * self.n_groups
@@ -496,6 +521,7 @@ class interarealAnalysis():
         total_stim = total_multi_stim * self.n_reps
         
         self.stim_dur = total_stim - self.inter_point_delay
+        self.stim_freq = (1000 / total_multi_stim) # stim frequency for one cell/group in Hz
 
         self.paqProcessing()
 
@@ -503,8 +529,9 @@ class interarealAnalysis():
     def whiskerStimProcessing(self):
 
         self.stim_dur = 1000 # total whisker stim duration
+        self.stim_freq = 10 # Hz
+        
         self.paqProcessing()
-#         self.duration_frames = 0 # don't need to exclude stim artifact for whisker_stim
         
         # calculate number of trials that could fit in the t-series
         # only really applicable for t-series with data loss at end of t-series
@@ -571,13 +598,15 @@ class interarealAnalysis():
             return False
         
             
-    def _retrieveS2pData(self):
+    def _retrieveS2pData(self, s2_borders_path):
         
         self.cell_id = []
         self.n_units = []
         self.cell_plane = []
         self.cell_med = []
         self.cell_s1 = []
+        self.num_s1_cells = []
+        self.num_s2_cells = []
         self.cell_x = []
         self.cell_y = []
         self.raw = []
@@ -616,6 +645,8 @@ class interarealAnalysis():
             self.n_units.append(len(self.cell_id[plane]))
             self.cell_med.append(cell_med)
             self.cell_s1.append(cell_s1)
+            self.num_s1_cells.append(np.sum(cell_s1 == True))
+            self.num_s2_cells.append(np.sum(cell_s1 == False))
             self.cell_x.append(cell_x)
             self.cell_y.append(cell_y)
 
@@ -624,158 +655,168 @@ class interarealAnalysis():
             self.cell_plane.append(cell_plane)
     
     
-    def _staSignificance(self, test='t_test'):
+    def _makeFluTrials(self, plane_flu, plane):
         
-        self.sta_sig = []
-        self.sta_sig_nomulti = []
-        
-        for plane in range(self.n_planes):
+        # make detrended, baseline-subtracted flu trial arrays of shape [cell x frame x trial]
+        for i, stim in enumerate(self.stim_start_frames[plane]):
+            # use stim start frames and get before and after period based on pre_ or post_frames
+            trial_frames = np.s_[stim - self.pre_frames : stim + self.post_frames]
+
+            # make flu_trial from plane_dff
+            flu_trial = plane_flu[:,trial_frames]
             
-            #set this to true if you want to multiple comparisons correct for the number of cells
-            multi_comp_correction = True
-            if not multi_comp_correction: 
-                divisor = 1
+            stim_end = self.pre_frames + self.duration_frames
+            
+            # detrend the dfof trace
+            if flu_trial.shape[1] > stim_end:
+                
+                if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
+                    # detrend only the flu_trial outside of stim artifact
+                    flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
+                    flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
+                    flu_trial = np.insert(flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
+                
+                # baseline flu_trial to first 2 seconds
+                baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
+                baseline_flu_stack = np.repeat(baseline_flu, flu_trial.shape[1]).reshape(flu_trial.shape)
+                flu_trial = flu_trial - baseline_flu_stack
+
+            # only append trials of the correct length - will catch corrupt/incomplete data and not include
+            if i == 0:
+                trial_array = flu_trial
+                flu_trial_shape = flu_trial.shape[1]
             else:
-                divisor = self.n_units[plane]
-                
-            p_vals = self.t_tests[plane]
-
-            if multi_comp_correction:
-                print('performing t-test on cells with multiple comparisons correction')
-            else:
-                print('performing t-test on cells without mutliple comparisons correction')
-
-            sig_units = []
-            nomulti_sig_units = []
-            
-            for _,p in enumerate(p_vals):
-                # unit_index = self.cell_id[plane][i]
-
-                if p < 0.05:
-                    nomulti_sig_units.append(True)
+                if flu_trial.shape[1] == flu_trial_shape:
+                    trial_array = np.dstack((trial_array, flu_trial))
                 else:
-                    nomulti_sig_units.append(False)
-                if p < (0.05 / divisor):
-                    sig_units.append(True) #significant units
-                else:
-                    sig_units.append(False) 
-
-            self.sta_sig.append(sig_units)  
-            self.sta_sig_nomulti.append(nomulti_sig_units)
-    
-    
-    def _singleTrialSignificance(self):
-        
-        self.single_sig = [] # single trial significance value for each trial for each cell in each plane
-
-        for plane in range(self.n_planes):
-
-            single_sigs = []
-            
-            for cell,_ in enumerate(self.cell_id[plane]):
-                
-                single_sig = []
-
-                for trial in range(len(self.all_trials[0][0][0])):
+                    print('**incomplete trial detected and not appended to trial_array**')
                     
-                    pre_f_trial  = self.all_trials[plane][cell][ : self.pre_frames, trial]
-                    std = np.std(pre_f_trial)
-
-                    if np.absolute(self.all_amplitudes[plane][cell][trial]) >= 2*std:
-                        single_sig.append(True)
-                    else:
-                        single_sig.append(False)
-                
-                single_sigs.append(single_sig)
-            
-            # [plane x cell x trial]
-            self.single_sig.append(single_sigs)
-
-            
-    def _cellStaProcessing(self):
+        return trial_array
+    
+    
+    def _trialProcessing(self, plane, pre_trial_frames, post_trial_frames):
         
-        if self.stim_start_frames:
-    
-            # pre-allocated empty lists
-            self.all_trials = []
-            self.all_amplitudes = []
-            self.stas = []
-            self.sta_amplitudes = []
-            self.t_tests = []
-
-            self.pre_frames = int(np.ceil(self.fps*2)) # pre-stim period to include in trial
-            self.post_frames = int(np.ceil(self.fps*10)) # post-stim period to include in trial
-            self.test_frames = int(np.ceil(self.fps*0.5)) # frames to test for effect pre and post stim
-
-            for plane in range(self.n_planes):
-
-                plane_dff = self.dfof[plane]
-
-                # make trial arrays from entire plane_dff [plane x cell x frame x trial]
-                for i, stim in enumerate(self.stim_start_frames[plane]):
-                    # use stim start frames and get before and after period based on pre_ or post_frames
-                    trial_frames = np.s_[stim - self.pre_frames : stim + self.post_frames]
-
-                    # make flu_trial from plane_dff
-                    flu_trial = plane_dff[:,trial_frames]
-                    
-                    # detrend the dfof trace for all but whisker_stim trials
-                    if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
-                        stim_end = self.pre_frames + self.duration_frames
-
-                        # detrend only the flu_trial outside of stim artifact
-                        if flu_trial.shape[1] > stim_end:
-                            flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
-                            flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
-                            flu_trial = np.insert(flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
-                    
-                    # baseline flu_trial to first 2 seconds
-                    baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
-                    baseline_flu_stack = np.repeat(baseline_flu, flu_trial.shape[1]).reshape(flu_trial.shape)
-                    flu_trial = flu_trial - baseline_flu_stack
-
-                    # only append trials of the correct length - will catch corrupt/incomplete data and not include
-                    if i == 0:
-                        flu_array = flu_trial
-                        flu_trial_shape = flu_trial.shape[1]
-                    else:
-                        if flu_trial.shape[1] == flu_trial_shape:
-                            flu_array = np.dstack((flu_array, flu_trial))
-                        else:
-                            print('**incomplete trial detected and not appended to flu_array**')
+        # make trial arrays from dff data [plane x cell x frame x trial]
+        trial_array = self._makeFluTrials(self.dfof[plane], plane)
+        self.all_trials.append(trial_array)
                 
-                self.all_trials.append(flu_array)
-
-                # make trial amplitudes, [plane x cell x trial]
-                pre_trial_frames = np.s_[self.pre_frames - self.test_frames : self.pre_frames]
-                stim_end = self.pre_frames + self.duration_frames
-                post_trial_frames = np.s_[stim_end : stim_end + self.test_frames]
-
-                pre_array = np.mean(flu_array[:, pre_trial_frames, :], axis=1)
-                post_array = np.mean(flu_array[:, post_trial_frames, :], axis=1)
-                all_amplitudes = post_array - pre_array
-                self.all_amplitudes.append(all_amplitudes)
-                
-                # make stas, [plane x cell x frame]
-                stas = np.mean(flu_array, axis=2)
-                self.stas.append(stas)
-
-                # make sta amplitudes, [plane x cell]
-                pre_sta = np.mean(stas[:, pre_trial_frames], axis=1)
-                post_sta = np.mean(stas[:, post_trial_frames], axis=1)
-                sta_amplitudes = post_sta - pre_sta
-                self.sta_amplitudes.append(sta_amplitudes)
-
-                # significance test, [cell]
-                t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
-                self.t_tests.append(t_tests[1][:])
-
-            self._singleTrialSignificance()
-            self._staSignificance()
-    
-    
-    def _findTargets(self):
+        pre_array = np.mean(trial_array[:, pre_trial_frames, :], axis=1)
+        post_array = np.mean(trial_array[:, post_trial_frames, :], axis=1)
+        all_amplitudes = post_array - pre_array
+        self.all_amplitudes.append(all_amplitudes)
         
+        # significance test, [cell (p-value)]
+        t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
+        self.t_tests.append(t_tests[1][:])
+        
+        return trial_array 
+    
+    
+    def _STAProcessing(self, trial_array, pre_trial_frames, post_trial_frames):
+        
+        # make stas, [plane x cell x frame]
+        stas = np.mean(trial_array, axis=2)
+        self.stas.append(stas)
+
+        # make sta amplitudes, [plane x cell]
+        pre_sta = np.mean(stas[:, pre_trial_frames], axis=1)
+        post_sta = np.mean(stas[:, post_trial_frames], axis=1)
+        sta_amplitudes = post_sta - pre_sta
+        self.sta_amplitudes.append(sta_amplitudes)
+    
+    
+    def _sigTestTrialDFSF(self, plane, post_trial_frames):
+        
+        # make dF/sF trials to calculate single trial responses from
+        df_trials = self._makeFluTrials(self.raw[plane], plane)   
+        std_baseline = np.std(df_trials[:, :self.pre_frames, :], axis=1) # std of baseline period
+        std_baseline = np.expand_dims(std_baseline, axis=1)
+        std_baseline = np.repeat(std_baseline, df_trials.shape[1], axis=1)
+        dfsf_trials = df_trials/std_baseline
+
+        mean_post_dfsf = np.nanmean(dfsf_trials[:, post_trial_frames, :], axis=1)
+
+        trial_sig = np.absolute(mean_post_dfsf > 1)
+        
+        self.trial_sig_dfsf.append(trial_sig)
+        
+    
+    def _sigTestTrialDFF(self, plane):
+        
+        dff_baseline = self.all_trials[plane][:, :self.pre_frames, :] # [cell x frames x trial]
+        std_baseline = np.std(dff_baseline, axis=1)
+
+        trial_sig = np.absolute(self.all_amplitudes[plane]) >= 2*std_baseline # [cell x trial]
+            
+        # [plane x cell x trial]
+        self.trial_sig_dff.append(trial_sig)
+        
+        
+    def _sigTestAvgDFF(self, plane):
+  
+        p_vals = self.t_tests[plane]
+
+        bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05 / self.n_units[plane]]
+        sig_units = np.zeros(self.n_units[plane], dtype='bool')
+        sig_units[bonf_corr] = True
+
+        no_bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05]
+        nomulti_sig_units = np.zeros(self.n_units[plane], dtype='bool')
+        nomulti_sig_units[no_bonf_corr] = True
+
+        self.sta_sig.append(sig_units)  
+        self.sta_sig_nomulti.append(nomulti_sig_units)
+
+        
+    def _probResponse(self, plane, trial_sig_calc):
+        
+        # calculate response probability across all trials for each cell
+        n_trials = exp_obj.n_trials
+
+        # get the number of responses across all trials
+        if trial_sig_calc == 'dff':
+            num_respond = np.array(exp_obj.trial_sig_dff[plane]) # trial_sig_dff is [plane][cell][trial]
+        elif trial_sig_calc == 'dfsf': 
+            num_respond = np.array(exp_obj.trial_sig_dfsf[plane])
+        
+        # return the probability of response
+        self.prob_response = np.sum(num_respond, axis=1) / n_trials
+    
+    
+    def _scaleTargets(self, frame_x, frame_y, target_image_scaled):
+                          
+        #bounding box coords
+        x1 = 511 - frame_x/2
+        x2 = 511 + frame_x/2
+        y1 = 511 - frame_y/2
+        y2 = 511 + frame_y/2
+
+        #calc imaging galvo offset between BAFOV and t-series
+        zoom = self.zoom
+        scan_x = self.scan_x #scan centre in V
+        scan_y = self.scan_y
+
+        ScanAmp_X = 2.62*2
+        ScanAmp_Y = 2.84*2
+
+        ScanAmp_V_FOV_X = ScanAmp_X / zoom
+        ScanAmp_V_FOV_Y = ScanAmp_Y / zoom
+
+        scan_pix_y = ScanAmp_V_FOV_Y / 1024
+        scan_pix_x = ScanAmp_V_FOV_X / 1024
+
+        offset_x = scan_x/scan_pix_x #offset between image centres in pixels
+        offset_y = scan_y/scan_pix_y
+
+        # offset the bounding box
+        x1,x2,y1,y2 = round(x1+offset_x), round(x2+offset_x), round(y1-offset_y), round(y2-offset_y)
+
+        # crop the target image using the offset bounding box to get the targets in t-series imaging space
+        return target_image_scaled[y1:y2, x1:x2]
+        
+                          
+    def _findTargetAreas(self):
+                          
         print('\nFinding SLM target locations...')
         
         # load naparm targets file for this experiment
@@ -797,34 +838,7 @@ class interarealAnalysis():
         frame_y = self.frame_y
 
         if frame_x < 1024 or frame_y < 1024:
-            #bounding box coords
-            x1 = 511 - frame_x/2
-            x2 = 511 + frame_x/2
-            y1 = 511 - frame_y/2
-            y2 = 511 + frame_y/2
-
-            #calc imaging galvo offset between BAFOV and t-series
-            zoom = self.zoom
-            scan_x = self.scan_x #scan centre in V
-            scan_y = self.scan_y
-
-            ScanAmp_X = 2.62*2
-            ScanAmp_Y = 2.84*2
-
-            ScanAmp_V_FOV_X = ScanAmp_X / zoom
-            ScanAmp_V_FOV_Y = ScanAmp_Y / zoom
-
-            scan_pix_y = ScanAmp_V_FOV_Y / 1024
-            scan_pix_x = ScanAmp_V_FOV_X / 1024
-
-            offset_x = scan_x/scan_pix_x #offset between image centres in pixels
-            offset_y = scan_y/scan_pix_y
-
-            # offset the bounding box
-            x1,x2,y1,y2 = round(x1+offset_x), round(x2+offset_x), round(y1-offset_y), round(y2-offset_y)
-
-            # crop the target image using the offset bounding box to get the targets in t-series imaging space
-            target_image_scaled = target_image_scaled[y1:y2, x1:x2]
+            target_image_scaled = self._scaleTargets(frame_x, frame_y, target_image_scaled)
             tf.imwrite(os.path.join(naparm_path, 'target_image_scaled.tif'), target_image_scaled)
         else:
             tf.imwrite(os.path.join(naparm_path, 'target_image_scaled.tif'), target_image_scaled)
@@ -839,7 +853,7 @@ class interarealAnalysis():
 
         target_areas = []
 
-        radius = self.spiral_size/self.pix_sz_x # this is effectively double the spiral size
+        radius = ( (self.spiral_size / 2) + 10) / self.pix_sz_x # adding 10 um to account for photostim res
         for coord in targ_coords:
             target_area = np.array([item for item in points_in_circle_np(radius, x0=coord[0], y0=coord[1])])
             if not any([max(target_area[:,1]) > frame_x,
@@ -850,7 +864,10 @@ class interarealAnalysis():
                 target_areas.append(target_area)
 
         self.target_areas = target_areas
-
+    
+                          
+    def _findTargetedCells(self):
+                    
         print('searching for targeted cells...')
 
         targ_img = np.zeros([frame_x, frame_y], dtype='uint16')
@@ -878,29 +895,137 @@ class interarealAnalysis():
 
         print('search completed.')
         print('number of targeted cells: ', self.n_targeted_cells)
+            
+            
+    def _targetSumDff(self):
+        
+        trial_amplitudes = self.all_amplitudes[0]
+
+        targeted_cells = np.repeat(self.targeted_cells[..., None], 
+                               trial_amplitudes.shape[1], 1) # [..., None] is a quick way to expand_dims
+
+        trial_target_amplitudes = np.multiply(trial_amplitudes, targeted_cells)
+        trial_target_dff = np.sum(trial_target_amplitudes, axis=0)
+
+        return trial_target_dff
     
     
-    def s2pAnalysis(self, s2_borders_path, subtract_neuropil=True):
+    def _euclidDist(self, resp_positions):
+        
+        resp_coords = list(zip(*resp_positions))
+        centroidx = np.mean(resp_coords[0])
+        centroidy = np.mean(resp_coords[1])
+        centroid = [centroidx, centroidy]
+
+        dists = np.empty(resp_positions.shape[0])
+
+        for i, resp in enumerate(resp_positions):
+            dists[i] = np.linalg.norm(resp - centroid)
+
+        euclid_dist = np.mean(dists)
+
+        return euclid_dist
+
+    
+    def _targetAnalysis(self):
+        
+        self._findTargetAreas()
+        
+        self._findTargetedCells()
+
+        self.trial_target_dff = self._targetSumDff()
+        
+        # Avg Euclidean dist of responding targeted cells on each trial
+        trial_responders = self.trial_sig_dff[0]
+        targeted_cells = np.repeat(self.targeted_cells[..., None], 
+                                   trial_responders.shape[1], 1) # [..., None] is a quick way to expand_dims
+        targeted_responders = targeted_cells & trial_responders
+
+        cell_positions = np.array(self.cell_med[0])
+
+        for trial in range(self.n_trials):
+
+            resp_cell = np.where(targeted_responders[:,trial])
+            resp_positions = cell_positions[resp_cell]
+
+            if resp_positions.shape[0] > 1: # need more than 1 cell to measure spread...
+                dist = self._euclidDist(resp_positions)
+                dists.append(dist)
+            else: 
+                dists.append(np.nan)
+
+        self.trial_euclid_dist = dists
+
+        # Avg Euclidean dist of consistently responding targeted cells (all trials)
+        responder = self.sta_sig[0]
+        target = self.targeted_cells
+
+        targeted_responders = responder & target
+
+        resp_cell = np.where(targeted_responders)
+        resp_positions = cell_positions[resp_cell]
+
+        if resp_positions.shape[0] > 1:
+            dist = self._euclidDist(resp_positions)
+        else: 
+            dist = np.nan
+
+        self.sta_euclid_dist = dist
+
+                          
+    def s2pAnalysis(self, s2_borders_path, trial_sig_calc):
         
         if self.n_frames == 0:
             print('______________________________________________________________________')
-            print('\nNo data for this', self.stim_type, 'experiment type')
+            print('\nNo s2p data for', self.stim_type, 'in this session')
             print('______________________________________________________________________')
 
         else: 
             print('______________________________________________________________________')
-            print('\nProcessing s2p data for this', self.stim_type, 'experiment type')
+            print('\nProcessing s2p data for', self.stim_type, 'experiment type')
             print('______________________________________________________________________\n')
             
             # collect data from s2p
-            self._retrieveS2pData()
+            self._retrieveS2pData(s2_borders_path)
             
             # process s2p data
-            self._cellStaProcessing()
+            if self.stim_start_frames:
+    
+                # pre-allocated empty lists
+                self.all_trials = [] # all trials for each cell, dff
+                self.all_amplitudes = [] # all amplitudes of response between dff test periods
+                
+                self.stas = [] # avg of all trials for each cell, dff
+                self.sta_amplitudes = [] # avg amplitude of response between dff test periods
+                
+                self.t_tests = [] # result from related samples t-test between dff test periods
+                self.trial_sig_dff = [] # based on dff increase above std of baseline
+                self.trial_sig_dfsf = [] # based on df/std(f) increase in test period post-stim
+                self.sta_sig = [] # based on t-test between dff test periods
+                self.sta_sig_nomulti = [] # as above, no multiple comparisons correction
+
+                self.pre_frames = int(np.ceil(self.fps*2)) # pre-stim period to include in trial
+                self.post_frames = int(np.ceil(self.fps*10)) # post-stim period to include in trial
+                self.test_frames = int(np.ceil(self.fps*0.5)) # test period for stats
+
+                for plane in range(self.n_planes):
+                    
+                    pre_trial_frames = np.s_[self.pre_frames - self.test_frames : self.pre_frames]
+                    stim_end = self.pre_frames + self.duration_frames
+                    post_trial_frames = np.s_[stim_end : stim_end + self.test_frames]
+        
+                    trial_array = self._trialProcessing(plane, pre_trial_frames, post_trial_frames)
+
+                    self._STAProcessing(trial_array, pre_trial_frames, post_trial_frames)
+                
+                    self._sigTestTrialDFSF(plane, post_trial_frames)
+                    self._sigTestTrialDFF(plane)
+                    self._sigTestAvgDFF(plane)
+                    
+                    self._probResponse(plane, trial_sig_calc)
             
             # target cells
             if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
-                self._findTargets()
-
+                self._targetAnalysis()
+                          
                 
-            
