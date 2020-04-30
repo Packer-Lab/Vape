@@ -8,6 +8,7 @@ import csv
 import math
 import bisect
 import copy
+from scipy import stats
 
 # global plotting params
 params = {'legend.fontsize': 'x-large',
@@ -83,7 +84,7 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
                 is_cells = np.load(os.path.join(root, file), 
                                    allow_pickle=True)[:, 0]
                 is_cells = np.ndarray.astype(is_cells, 'bool')
-                print('Loading {} traces labelled as cells'
+                print('loading {} traces labelled as cells'
                       .format(sum(is_cells)))
             elif file == 'spks.npy':
                 spks = np.load(os.path.join(root, file), allow_pickle=True)
@@ -107,7 +108,7 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
         return all_cells, spks, stat
 
     else:
-        print('Subtracting neuropil with a coefficient of {}'
+        print('subtracting neuropil with a coefficient of {}'
               .format(neuropil_coeff))
         neuropil_corrected = all_cells - neuropil * neuropil_coeff
         return neuropil_corrected, spks, stat
@@ -273,7 +274,7 @@ def stim_start_frame_mat(stim_times, frames_ms, fs=5, debug_print=False):
 
 
 def stim_start_frame(paq=None, stim_chan_name=None, frame_clock=None,
-                     stim_times=None):
+                     stim_times=None, plane=0, n_planes=1):
     '''Returns the frames from a frame_clock that a stim occured on.
        Either give paq and stim_chan_name as arugments if using 
        unprocessed paq. 
@@ -292,7 +293,9 @@ def stim_start_frame(paq=None, stim_chan_name=None, frame_clock=None,
 
     for stim in stim_times:
         # the sample time of the frame immediately preceeding stim
-        frame = next(frame_clock[i-1] for i, sample in enumerate(frame_clock)
+#         frame = next(frame_clock[i-1] for i, sample in enumerate(frame_clock[plane::n_planes])
+#                      if sample - stim > 0)
+        frame = next(i-1 for i, sample in enumerate(frame_clock[plane::n_planes])
                      if sample - stim > 0)
         frames.append(frame)
 
@@ -559,7 +562,6 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames=10,
     prev_frame = 0
 
     for i, stim_time in enumerate(stim_times):
-
 
         stim_frame = closest_frame_before(frame_clock, stim_time)
 
