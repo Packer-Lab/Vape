@@ -24,301 +24,106 @@ from utils.gsheets_importer import gsheet2df, split_df, path_conversion, path_fi
 from utils.paq2py import *
 from utils.utils_funcs import *
 
+
+
 class interarealPlotting():
 
+    
     def __init__(self, pkl_folder):
         
+        # General attributes
         self.pkl_folder = pkl_folder
         self.pkl_name = []
         self.pkl_path = []
-
-        self.n_units = []
-        self.n_targets = []
-        self.n_targeted_cells = []
-        self.targeted_cells = []
-        self.s1_cells = []
-        self.stim_dur = []
-        self.stim_freq = []
-        self.stim_type = []
+        
+        # Experimental attributes
         self.sheet_name = []
+        self.stim_type = []
         self.tiff_path = []
         self.fps = []
-
-        self.df = pd.DataFrame()
-
+        self.n_units = []
+        self.cell_med = []
+        self.cell_s1 = []
+        self.num_s1_cells = []
+        self.num_s2_cells = []
+        self.stim_dur = []
+        self.stim_freq = [] 
+        self.pre_frames = []
+        self.post_frames = []
+        self.duration_frames = []
+        self.all_trials = []
+        self.stas = []
+        self.trial_sig_dff = []
+        self.trial_sig_dfsf = []
+        self.sta_sig = []
+        self.sta_sig_nomulti = []
+        self.prob_response = []
+        self.sta_amplitudes = []
+        self.all_amplitudes = []
+        
+        # Photostim attributes
+        self.targeted_cells = []
+        self.target_coords = []
+        self.n_targets = []
+        self.n_targeted_cells = []
+        self.trial_target_dff = []
+        self.trial_w_targets = []
+        self.trial_euclid_dist = []
+        self.sta_euclid_dist = []
+        
+        # Populate the lists above
         self.addPickles()
 
-    def _parseSimpleMetadata(self, exp_obj):
-              
+        
+    def _parseGeneralMetadata(self, exp_obj):
+        
+        # Only taking the first plane: [0]
         self.stim_type.append(exp_obj.stim_type)
         self.tiff_path.append(os.path.split(exp_obj.tiff_path)[1])
         self.fps.append(exp_obj.fps)
         self.n_units.append(exp_obj.n_units[0])
-        self.s1_cells.append(np.array(exp_obj.cell_s1[0]))
-        
-        df = pd.DataFrame({'sheet_name'       : [self.sheet_name[-1]],
-                           'tiff_path'        : [self.tiff_path[-1]],
-                           'stim_type'        : [self.stim_type[-1]],
-                           'fps'              : [self.fps[-1]],
-                           'n_units'          : [self.n_units[-1]], 
-                           's1_cells'         : [self.s1_cells[-1]]
-                          }
-                         )
-        
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
-    def _meanSTA(self, exp_obj):
-        
-        s1_sta_amp = []
-        s1_sta = []
-        s2_sta_amp = []
-        s2_sta = []
-        
-        for cell,_ in enumerate(exp_obj.cell_id[0]):
-            if exp_obj.cell_s1[0][cell] == 0:
-                s2_sta.append(exp_obj.stas[0][cell])
-                s2_sta_amp.append(exp_obj.sta_amplitudes[0][cell])
-            if exp_obj.cell_s1[0][cell] == 1:
-                s1_sta.append(exp_obj.stas[0][cell])
-                s1_sta_amp.append(exp_obj.sta_amplitudes[0][cell])
-    
-        df = pd.DataFrame({'s2_sta' : [np.nanmean(s2_sta,axis=0)],
-                           's2_sta_amp' : [np.nanmean(s2_sta_amp,axis=0)],
-                           's2_sta_std' : [np.std(s2_sta, axis=0)],
-                           's1_sta' : [np.nanmean(s1_sta,axis=0)],
-                           's1_sta_amp' : [np.nanmean(s1_sta_amp,axis=0)],
-                           's1_sta_std' : [np.std(s1_sta, axis=0)]
-                          }
-                         )
+        self.stim_dur.append(exp_obj.stim_dur)
+        self.stim_freq.append(exp_obj.stim_freq)
+        self.pre_frames.append(exp_obj.pre_frames)
+        self.post_frames.append(exp_obj.post_frames)
+        self.duration_frames.append(exp_obj.duration_frames)
+        self.cell_med.append(np.array(exp_obj.cell_med[0]))
+        self.cell_s1.append(np.array(exp_obj.cell_s1[0]))
+        self.num_s1_cells.append(exp_obj.num_s1_cells[0])
+        self.num_s2_cells.append(exp_obj.num_s2_cells[0])
+        self.all_trials.append(exp_obj.all_trials[0])
+        self.stas.append(exp_obj.stas[0])
+        self.trial_sig_dff.append(exp_obj.trial_sig_dff[0])
+        self.trial_sig_dfsf.append(exp_obj.trial_sig_dfsf[0])
+        self.sta_sig.append(exp_obj.sta_sig[0])
+        self.sta_sig_nomulti.append(exp_obj.sta_sig_nomulti[0])
+        self.prob_response.append(exp_obj.prob_response[0])
+        self.sta_amplitudes.append(exp_obj.sta_amplitudes[0])
+        self.all_amplitudes.append(exp_obj.all_amplitudes[0])
 
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-    
-    def _numCellsRespond(self, exp_obj):
-
-        #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
-        num_s1_cells = exp_obj.cell_s1[0].count(True)
-        num_s2_cells = exp_obj.cell_s1[0].count(False)
-
-        #amplitudes of response using stimulus triggered average dff pre/post stim
-        amps = exp_obj.all_amplitudes[0]
-        pos_amps = (amps > 0).T
-        neg_amps = (amps <= 0).T
-        
-        #significant single trials for each cell (response >2 S.D. of the baseline)
-        trial_sig_dff = (np.array(exp_obj.trial_sig_dff[0])).T
-        
-        #boolean of which cells are in s1 or s2
-        s1_cells = np.array(exp_obj.cell_s1[0]) # boolean of length cell for s1 cells
-        s2_cells = ~s1_cells
-
-        #positive, negative or all responding cells in s1 or s2 for each trial
-        pos_s1 = pos_amps & trial_sig_dff & s1_cells
-        pos_s2 = pos_amps & trial_sig_dff & s2_cells
-        neg_s1 = neg_amps & trial_sig_dff & s1_cells 
-        neg_s2 = neg_amps & trial_sig_dff & s2_cells
-        
-        df = pd.DataFrame({'num_s1_cells' : [num_s1_cells],
-                           'num_s2_cells' : [num_s2_cells],
-                           'positive_s1_responders_trial' : [np.sum(pos_s1, axis=1)],
-                           'negative_s1_responders_trial' : [np.sum(neg_s1, axis=1)],
-                           'positive_s2_responders_trial' : [np.sum(pos_s2, axis=1)],
-                           'negative_s2_responders_trial' : [np.sum(neg_s2, axis=1)],
-                          }  
-                         )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
-        #amplitudes of response using stimulus triggered average dff pre/post stim
-        amps = exp_obj.sta_amplitudes[0]
-        pos_amps = (amps > 0).T
-        neg_amps = (amps <= 0).T
-        
-        #boolean of reliable responders (significant t-test between 100 pairs of pre and post mean dffs)
-        sta_sig = np.array(exp_obj.sta_sig[0])
-        sta_sig_nomulti = np.array(exp_obj.sta_sig_nomulti[0])
-        
-        #cells responding sta
-        sta_sig_s1_pos = sta_sig & s1_cells & pos_amps
-        sta_sig_s2_pos = sta_sig & s2_cells & pos_amps
-        sta_sig_nomulti_s1_pos = sta_sig_nomulti & s1_cells & pos_amps
-        sta_sig_nomulti_s2_pos = sta_sig_nomulti & s2_cells & pos_amps
-        sta_sig_s1_neg = sta_sig & s1_cells & neg_amps
-        sta_sig_s2_neg = sta_sig & s2_cells & neg_amps
-        sta_sig_nomulti_s1_neg = sta_sig_nomulti & s1_cells & neg_amps
-        sta_sig_nomulti_s2_neg = sta_sig_nomulti & s2_cells & neg_amps
-        
-        df = pd.DataFrame({'positive_s1_responders_sta' : [np.sum(sta_sig_s1_pos)],
-                           'negative_s1_responders_sta' : [np.sum(sta_sig_s1_neg)],
-                           'positive_s2_responders_sta' : [np.sum(sta_sig_s2_pos)],
-                           'negative_s2_responders_sta' : [np.sum(sta_sig_s2_neg)],
-                           'positive_s1_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s1_pos)],
-                           'negative_s1_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s1_neg)],
-                           'positive_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_pos)],
-                           'negative_s2_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_s2_neg)]
-                          }  
-                         )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-    
-    def _probabilityResponse(self, exp_obj):
-
-        # For each exp_obj, i.e. photostim_r, photostim_s etc.
-        # calculate for each cell the probability of response and save to dataframe?
-
-        # trial_sig_dff is [plane][cell][trial]
-        n_trials = exp_obj.n_trials
-
-        # get the number of responses
-        num_respond = np.array(exp_obj.trial_sig_dff[0])
-
-        # get the probability of response
-        prob_response = np.sum(num_respond, axis=1) / n_trials
-
-        df = pd.DataFrame({'prob_response' : [prob_response]
-                        }  
-                        )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)   
     
     def _parsePhotostimMetadata(self, exp_obj):
         
-        self.n_targets.append(exp_obj.n_targets)
-        self.targeted_cells.append(np.array(exp_obj.targeted_cells) > 0)
-        self.n_targeted_cells.append(len([i for i in exp_obj.targeted_cells if i==1]))
-        self.stim_dur.append(exp_obj.stim_dur)
-        self.stim_freq.append( ( 1 / ( ( (exp_obj.single_stim_dur*exp_obj.n_shots) * exp_obj.n_groups-1 ) + ( exp_obj.inter_point_delay * exp_obj.n_groups ) ) ) * 1000 )
-        
-        df = pd.DataFrame({'n_targets'        : [self.n_targets[-1]], 
-                           'target_cells'     : [self.targeted_cells[-1]],
-                           'n_targeted_cells' : [self.n_targeted_cells[-1]],
-                           'stim_dur'         : [self.stim_dur[-1]],
-                           'stim_freq'        : [self.stim_freq[-1]]
-                          }
-                         )
+        if any(s in exp_obj.stim_type for s in ['pr', 'ps', 'none']):
+            self.targeted_cells.append(exp_obj.targeted_cells)
+            self.target_coords.append(exp_obj.target_coords)
+            self.n_targets.append(exp_obj.n_targets)
+            self.n_targeted_cells.append(exp_obj.n_targeted_cells)
+            self.trial_target_dff.append(exp_obj.trial_target_dff)
+            self.trial_w_targets.append(exp_obj.trial_w_targets)
+            self.trial_euclid_dist.append(exp_obj.trial_euclid_dist)
+            self.sta_euclid_dist.append(exp_obj.sta_euclid_dist)
+        else:
+            self.targeted_cells.append(False)
+            self.target_coords.append(False)
+            self.n_targets.append(False)
+            self.n_targeted_cells.append(False)
+            self.trial_target_dff.append(False)
+            self.trial_w_targets.append(False)
+            self.trial_euclid_dist.append(False)
+            self.sta_euclid_dist.append(False)
 
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
     
-    def _meanTargetSTA(self, exp_obj):
-        
-        targeted_sta_amp = []
-        targeted_sta = []
-        non_targeted_sta_amp = []
-        non_targeted_sta = []
-        
-        for cell,_ in enumerate(exp_obj.targeted_cells):
-            if exp_obj.targeted_cells[cell] == 1:
-                targeted_sta.append(exp_obj.stas[0][cell])
-                targeted_sta_amp.append(exp_obj.sta_amplitudes[0][cell])
-            else:
-                non_targeted_sta.append(exp_obj.stas[0][cell])
-                non_targeted_sta_amp.append(exp_obj.sta_amplitudes[0][cell])
-    
-        df = pd.DataFrame({'target_sta' : [np.nanmean(targeted_sta,axis=0)],
-                           'target_sta_amp' : [np.nanmean(targeted_sta_amp,axis=0)],
-                           'target_sta_std' : [np.std(targeted_sta, axis=0)],
-                           'non_target_sta' : [np.nanmean(non_targeted_sta,axis=0)],
-                           'non_target_sta_amp' : [np.nanmean(non_targeted_sta_amp,axis=0)],
-                           'non_target_sta_std' : [np.std(non_targeted_sta, axis=0)]
-                          }
-                         )
-
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
-    def _numTargetsRespond(self, exp_obj):
-        
-        #number of cell in s1 and s2 based on s2p ROIs in certain parts of the image
-        num_s1_cells = exp_obj.cell_s1[0].count(True)
-        num_s2_cells = exp_obj.cell_s1[0].count(False)
-
-        #amplitudes of response using stimulus triggered average dff pre/post stim
-        amps = exp_obj.all_amplitudes[0]
-        pos_amps = (amps > 0).T
-        neg_amps = (amps <= 0).T
-
-        #significant single trials for each cell (response >2 S.D. of the baseline)
-        trial_sig_dff = (np.array(exp_obj.trial_sig_dff[0])).T
-        
-        #boolean of targeted cells
-        target_cells = np.array(exp_obj.targeted_cells)
-        targeted_cells = target_cells > 0
-        
-        sig_targeted = targeted_cells & pos_amps & trial_sig_dff 
-                
-        df = pd.DataFrame({'target_responders_trial' : [sig_targeted],
-                           'target_responders_trial_sum' : [np.sum(sig_targeted, axis=1)]
-                          }  
-                         )
-        
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-        
-        #amplitudes of response using stimulus triggered average dff pre/post stim
-        amps = exp_obj.sta_amplitudes[0]
-        pos_amps = (amps > 0).T
-        
-        #boolean of reliable responders (significant t-test between 100 pairs of pre and post mean dffs)
-        sta_sig = np.array(exp_obj.sta_sig[0])
-        sta_sig_nomulti = np.array(exp_obj.sta_sig_nomulti[0])
-        
-        sta_sig_target = sta_sig & targeted_cells & pos_amps
-        sta_sig_nomulti_target = sta_sig_nomulti & targeted_cells & pos_amps
-        
-        df = pd.DataFrame({'target_responders' : [sta_sig_target],
-                           'target_responders_sta' : [np.sum(sta_sig_target)],
-                           'target_responders_sta_nomulti' : [np.sum(sta_sig_nomulti_target)]
-                          }  
-                         )
-        
-        self.temp_df = pd.concat([self.temp_df, df], axis=1, sort=False)
-    
-    def _stimTrialParameters(self, exp_obj, whisker_cells):
-        
-        df = self.df
-
-        # sheet name for current session
-        targeted_cells = np.where(exp_obj.targeted_cells)[0]
-        all_responses = np.array(exp_obj.all_amplitudes[0])
-
-        # preallocation of list for collection of amplitudes later
-        sum_dff_trials = []
-        num_whisker_targets = []
-        dists = []
-        
-        for trial in range(exp_obj.n_trials):
-            responders = [i for i in range(exp_obj.n_units[0]) if exp_obj.trial_sig_dff[0][i][trial] == 1]
-            target_responder_ids = [i for i in responders if i in targeted_cells]
-            
-            if whisker_cells:
-                num_whisker_targets.append(sum(1 for i in whisker_cells[0] if i in target_responder_ids))
-
-            target_responses = all_responses[target_responder_ids] # responses of only the targets in dFF
-            sum_dff = np.sum(target_responses[:,trial], axis=0) # sum of those responses
-            sum_dff_trials = np.append(sum_dff_trials, sum_dff) # append to list of all trials summed dFF
-            
-            cell_positions = np.array(exp_obj.cell_med[0])
-
-            resp_positions = cell_positions[target_responder_ids]
-
-            if np.any(resp_positions):
-                targ_coords = list(zip(*resp_positions))
-                centroidx = np.sum(targ_coords[0])/len(targ_coords[0])
-                centroidy = np.sum(targ_coords[1])/len(targ_coords[1])
-                centroid = [centroidx, centroidy]
-
-                targ = resp_positions[0]
-                dist = np.linalg.norm(targ-centroid)
-                dists.append(dist)
-            else: 
-                dists.append(0.0)
-                
-        temp_df = pd.DataFrame({'target_sum_dff' : [sum_dff_trials],
-                                'num_whisker_targets' : [num_whisker_targets],
-                                'euclid_dist' : [dists]
-                                  }  
-                                 )
-
-        # save the results to the df
-        self.temp_df = pd.concat([self.temp_df, temp_df], axis=1, sort=False)
-                
     def _performAnalysis(self):
 
         for pkl_file in self.new_pkls:
@@ -331,46 +136,29 @@ class interarealPlotting():
             with open(pkl_file, 'rb') as f:
                 ses_obj = pickle.load(f)
             
-            pkl_list = [ses_obj.photostim_r, ses_obj.photostim_s]
+            exp_list = [ses_obj.photostim_r, ses_obj.photostim_s]
 
             if ses_obj.spont.n_frames > 0:
-                pkl_list.append(ses_obj.spont)
+                exp_list.append(ses_obj.spont)
                 
             if ses_obj.whisker_stim.n_frames > 0:
-                pkl_list.append(ses_obj.whisker_stim)
+                exp_list.append(ses_obj.whisker_stim)
                 whisker_cells = np.where(ses_obj.whisker_stim.sta_sig[0]) # find the number of whisker responsive cells targeted on each trial
 
-            for exp_obj in pkl_list:
+            for exp_obj in exp_list:
                 
-                self.temp_df = pd.DataFrame()
-
                 self.sheet_name.append(ses_obj.sheet_name)
 
-                self._parseSimpleMetadata(exp_obj)
+                self._parseGeneralMetadata(exp_obj)
                 
-                self._meanSTA(exp_obj)
+                self._parsePhotostimMetadata(exp_obj)
 
-                self._numCellsRespond(exp_obj)
                 
-                self._probabilityResponse(exp_obj)
-                
-                if any(s in exp_obj.stim_type for s in ['pr', 'ps', 'none']):
-                    
-                    self._parsePhotostimMetadata(exp_obj)
-
-                    self._meanTargetSTA(exp_obj)
-
-                    self._numTargetsRespond(exp_obj)
-
-                    self._stimTrialParameters(exp_obj, whisker_cells)
-                    
-                self.df = self.df.append(self.temp_df, ignore_index=True, sort=False)
-
     def addPickles(self):
 
         pkl_folder = self.pkl_folder
         self.new_pkls = []
-
+        
         for file in os.listdir(pkl_folder):
             if '.pkl' in file and file not in self.pkl_name:
                 path = os.path.join(pkl_folder, file)
@@ -380,6 +168,7 @@ class interarealPlotting():
         
         self._performAnalysis()
 
+        
     def boxplotSummaryStat(self, column):
 
         print('Plotting summary statistic for all experiments:', column)

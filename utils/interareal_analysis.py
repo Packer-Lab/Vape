@@ -231,6 +231,7 @@ class interarealProcessing():
         self.spont.spiral_size = self.photostim_r.spiral_size 
         self.spont.duration_frames = self.photostim_r.duration_frames
         self.spont.stim_dur = self.photostim_r.stim_dur
+        self.spont.stim_freq = self.photostim_r.stim_freq
         self.spont.single_stim_dur = self.photostim_r.single_stim_dur
         self.spont.n_shots = self.photostim_r.n_shots
         self.spont.n_groups = self.photostim_r.n_groups
@@ -452,7 +453,6 @@ class interarealAnalysis():
         self.n_groups = n_groups
         self.n_reps = n_reps
         self.n_shots = n_shots
-        self.n_trials = n_trials
         self.inter_point_delay = inter_point_delay
 
         
@@ -699,6 +699,7 @@ class interarealAnalysis():
         # make trial arrays from dff data [plane x cell x frame x trial]
         trial_array = self._makeFluTrials(self.dfof[plane], plane)
         self.all_trials.append(trial_array)
+        self.n_trials = trial_array.shape[2]
                 
         pre_array = np.mean(trial_array[:, pre_trial_frames, :], axis=1)
         post_array = np.mean(trial_array[:, post_trial_frames, :], axis=1)
@@ -771,16 +772,16 @@ class interarealAnalysis():
     def _probResponse(self, plane, trial_sig_calc):
         
         # calculate response probability across all trials for each cell
-        n_trials = exp_obj.n_trials
+        n_trials = self.n_trials
 
         # get the number of responses across all trials
         if trial_sig_calc == 'dff':
-            num_respond = np.array(exp_obj.trial_sig_dff[plane]) # trial_sig_dff is [plane][cell][trial]
+            num_respond = np.array(self.trial_sig_dff[plane]) # trial_sig_dff is [plane][cell][trial]
         elif trial_sig_calc == 'dfsf': 
-            num_respond = np.array(exp_obj.trial_sig_dfsf[plane])
+            num_respond = np.array(self.trial_sig_dfsf[plane])
         
         # return the probability of response
-        self.prob_response = np.sum(num_respond, axis=1) / n_trials
+        self.prob_response.append(np.sum(num_respond, axis=1) / n_trials)
     
     
     def _scaleTargets(self, frame_x, frame_y, target_image_scaled):
@@ -870,13 +871,13 @@ class interarealAnalysis():
                     
         print('searching for targeted cells...')
 
-        targ_img = np.zeros([frame_x, frame_y], dtype='uint16')
+        targ_img = np.zeros([self.frame_x, self.frame_y], dtype='uint16')
 
-        target_areas = np.array(target_areas)
+        target_areas = np.array(self.target_areas)
 
         targ_img[target_areas[:,:,1], target_areas[:,:,0]] = 1
  
-        cell_img = np.zeros([frame_x, frame_y], dtype='uint16')
+        cell_img = np.zeros_like(targ_img)
 
         cell_x = np.array(self.cell_x)
         cell_y = np.array(self.cell_y)
@@ -927,13 +928,7 @@ class interarealAnalysis():
         return euclid_dist
 
     
-    def _targetAnalysis(self):
-        
-        self._findTargetAreas()
-        
-        self._findTargetedCells()
-
-        self.trial_target_dff = self._targetSumDff()
+    def _targetSpread(self):
         
         # Avg Euclidean dist of responding targeted cells on each trial
         trial_responders = self.trial_sig_dff[0]
@@ -942,17 +937,18 @@ class interarealAnalysis():
         targeted_responders = targeted_cells & trial_responders
 
         cell_positions = np.array(self.cell_med[0])
-
-        for trial in range(self.n_trials):
+        
+        dists = np.empty(self.n_trials)
+        
+        for i, trial in enumerate(range(self.n_trials)):
 
             resp_cell = np.where(targeted_responders[:,trial])
             resp_positions = cell_positions[resp_cell]
 
             if resp_positions.shape[0] > 1: # need more than 1 cell to measure spread...
-                dist = self._euclidDist(resp_positions)
-                dists.append(dist)
-            else: 
-                dists.append(np.nan)
+                dists[i] = self._euclidDist(resp_positions)
+            else:
+                dists[i] = np.nan
 
         self.trial_euclid_dist = dists
 
@@ -971,6 +967,17 @@ class interarealAnalysis():
             dist = np.nan
 
         self.sta_euclid_dist = dist
+    
+    
+    def _targetAnalysis(self):
+        
+        self._findTargetAreas()
+        
+        self._findTargetedCells()
+
+        self.trial_target_dff = self._targetSumDff()
+        
+        self._targetSpread()
 
                           
     def s2pAnalysis(self, s2_borders_path, trial_sig_calc):
@@ -998,6 +1005,7 @@ class interarealAnalysis():
                 self.stas = [] # avg of all trials for each cell, dff
                 self.sta_amplitudes = [] # avg amplitude of response between dff test periods
                 
+                self.prob_response = [] # proportion of trials responding on
                 self.t_tests = [] # result from related samples t-test between dff test periods
                 self.trial_sig_dff = [] # based on dff increase above std of baseline
                 self.trial_sig_dfsf = [] # based on df/std(f) increase in test period post-stim
