@@ -605,6 +605,7 @@ class interarealAnalysis():
         self.cell_plane = []
         self.cell_med = []
         self.cell_s1 = []
+        self.cell_s2 = []
         self.num_s1_cells = []
         self.num_s2_cells = []
         self.cell_x = []
@@ -645,8 +646,9 @@ class interarealAnalysis():
             self.n_units.append(len(self.cell_id[plane]))
             self.cell_med.append(cell_med)
             self.cell_s1.append(cell_s1)
-            self.num_s1_cells.append(np.sum(cell_s1 == True))
-            self.num_s2_cells.append(np.sum(cell_s1 == False))
+            self.cell_s2.append(np.invert(cell_s1))
+            self.num_s1_cells.append(np.sum(cell_s1))
+            self.num_s2_cells.append(np.sum(np.invert(cell_s1)))
             self.cell_x.append(cell_x)
             self.cell_y.append(cell_y)
 
@@ -783,6 +785,14 @@ class interarealAnalysis():
         # return the probability of response
         self.prob_response.append(np.sum(num_respond, axis=1) / n_trials)
     
+    
+    def _makeTimeVector(self):
+        
+        n_frames = self.all_trials[0].shape[1]
+        pre_time = self.pre_frames/self.fps
+        post_time = self.post_frames/self.fps
+        self.time = np.linspace(-pre_time, post_time, n_frames)
+        
     
     def _scaleTargets(self, frame_x, frame_y, target_image_scaled):
                           
@@ -1031,7 +1041,9 @@ class interarealAnalysis():
                     self._sigTestAvgDFF(plane)
                     
                     self._probResponse(plane, trial_sig_calc)
-            
+                
+                self._makeTimeVector()
+                
             # target cells
             if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                 self._targetAnalysis()

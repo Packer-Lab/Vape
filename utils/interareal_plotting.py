@@ -42,8 +42,10 @@ class interarealPlotting():
         self.tiff_path = []
         self.fps = []
         self.n_units = []
+        self.cell_id = []
         self.cell_med = []
-        self.cell_s1 = []
+        self.s1_cell = []
+        self.s2_cell = []
         self.num_s1_cells = []
         self.num_s2_cells = []
         self.stim_dur = []
@@ -51,6 +53,7 @@ class interarealPlotting():
         self.pre_frames = []
         self.post_frames = []
         self.duration_frames = []
+        self.time = []
         self.all_trials = []
         self.stas = []
         self.trial_sig_dff = []
@@ -77,29 +80,42 @@ class interarealPlotting():
         
     def _parseGeneralMetadata(self, exp_obj):
         
-        # Only taking the first plane: [0]
-        self.stim_type.append(exp_obj.stim_type)
+        # NOTE: only taking the first plane [0]
+        
+        # Variables and attributes that are shared within a session
+        self.n_units.append(exp_obj.n_units[0])
+        self.cell_id.append(exp_obj.cell_id[0])
+        self.num_s1_cells.append(exp_obj.num_s1_cells[0])
+        self.num_s2_cells.append(exp_obj.num_s2_cells[0])
+        self.cell_med.append(np.array(exp_obj.cell_med[0]))
+        self.s1_cell.append(np.array(exp_obj.cell_s1[0]))
+        self.s2_cell.append(np.array(exp_obj.cell_s2[0]))
+        
+        # Variables and attributes that differ within a session
+        # Should either be made in to an additional list (attributes) 
+        # or be expanded to fit the length of that dimension of the data (variables)
+        
+        # Attributes (things I won't use to index)
         self.tiff_path.append(os.path.split(exp_obj.tiff_path)[1])
         self.fps.append(exp_obj.fps)
-        self.n_units.append(exp_obj.n_units[0])
-        self.stim_dur.append(exp_obj.stim_dur)
-        self.stim_freq.append(exp_obj.stim_freq)
         self.pre_frames.append(exp_obj.pre_frames)
         self.post_frames.append(exp_obj.post_frames)
         self.duration_frames.append(exp_obj.duration_frames)
-        self.cell_med.append(np.array(exp_obj.cell_med[0]))
-        self.cell_s1.append(np.array(exp_obj.cell_s1[0]))
-        self.num_s1_cells.append(exp_obj.num_s1_cells[0])
-        self.num_s2_cells.append(exp_obj.num_s2_cells[0])
-        self.all_trials.append(exp_obj.all_trials[0])
-        self.stas.append(exp_obj.stas[0])
-        self.trial_sig_dff.append(exp_obj.trial_sig_dff[0])
-        self.trial_sig_dfsf.append(exp_obj.trial_sig_dfsf[0])
-        self.sta_sig.append(exp_obj.sta_sig[0])
-        self.sta_sig_nomulti.append(exp_obj.sta_sig_nomulti[0])
-        self.prob_response.append(exp_obj.prob_response[0])
-        self.sta_amplitudes.append(exp_obj.sta_amplitudes[0])
-        self.all_amplitudes.append(exp_obj.all_amplitudes[0])
+        self.stim_dur.append(exp_obj.stim_dur)
+        self.stim_freq.append(exp_obj.stim_freq)
+        
+        # Variables
+        self.all_trials.append(exp_obj.all_trials[0]) # [cell x frame x trial]
+        self.time.append(exp_obj.time) # [frame]
+        self.stim_type.append(exp_obj.stim_type) # expand this to repeat for len(trials)        
+        self.stas.append(np.array(exp_obj.stas[0])) # [cell x frame]
+        self.trial_sig_dff.append(np.array(exp_obj.trial_sig_dff[0])) # [cell x trial]
+        self.trial_sig_dfsf.append(np.array(exp_obj.trial_sig_dfsf[0])) # [cell x trial]
+        self.sta_sig.append(np.array(exp_obj.sta_sig[0])) # [cell]
+        self.sta_sig_nomulti.append(np.array(exp_obj.sta_sig_nomulti[0])) # [cell]
+        self.prob_response.append(np.array(exp_obj.prob_response[0])) # [cell]
+        self.sta_amplitudes.append(np.array(exp_obj.sta_amplitudes[0])) # [cell]
+        self.all_amplitudes.append(np.array(exp_obj.all_amplitudes[0])) # [cell x trial]
 
     
     def _parsePhotostimMetadata(self, exp_obj):
