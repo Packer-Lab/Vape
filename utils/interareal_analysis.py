@@ -624,6 +624,7 @@ class interarealAnalysis():
 
             ops = np.load(os.path.join(s2p_path,'ops.npy'), allow_pickle=True).item()
             self.mean_img.append(ops['meanImg'])
+            self.mean_imgE.append(ops['meanImgE'])
             self.xoff = ops['xoff']
             self.yoff = ops['yoff']
                 
@@ -657,6 +658,15 @@ class interarealAnalysis():
             self.cell_plane.append(cell_plane)
     
     
+    def _detrendFluTrial(self, flu_trial):
+        
+        flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
+        flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
+        flu_trial = np.insert(flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
+                
+        return flu_trial
+    
+    
     def _makeFluTrials(self, plane_flu, plane):
         
         # make detrended, baseline-subtracted flu trial arrays of shape [cell x frame x trial]
@@ -674,10 +684,8 @@ class interarealAnalysis():
                 
                 if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                     # detrend only the flu_trial outside of stim artifact
-                    flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
-                    flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
-                    flu_trial = np.insert(flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
-                
+                    flu_trial = self._detrendFluTrial(flu_trial)
+                    
                 # baseline flu_trial to first 2 seconds
                 baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
                 baseline_flu_stack = np.repeat(baseline_flu, flu_trial.shape[1]).reshape(flu_trial.shape)
@@ -1009,7 +1017,7 @@ class interarealAnalysis():
             if self.stim_start_frames:
     
                 # pre-allocated empty lists
-                self.all_trials = [] # all trials for each cell, dff
+                self.all_trials = [] # all trials for each cell, dff detrended
                 self.all_amplitudes = [] # all amplitudes of response between dff test periods
                 
                 self.stas = [] # avg of all trials for each cell, dff

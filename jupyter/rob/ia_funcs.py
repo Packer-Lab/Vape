@@ -424,6 +424,48 @@ def combineIscell(s2p_path, extra_iscell_path):
     np.save('iscell.npy', iscell)
     
     
+def topTenCells(values, cell_ids):
+    '''Return top ten cells based on values
+    
+    Inputs:
+        values -- 1D float array of values to choose top ten from
+        cell_ids -- 1D int array of cell indices to consider
+        
+    Returns:
+        top_ten_cell_ids -- 1D int array of cell indexes
+    '''
+    
+    # Sort new filtered array
+    sorted_ids = np.argsort(values)
+
+    # Final ten cell indices
+    top_ten_ids = sorted_ids[-10:]
+    top_ten_cell_ids = cell_ids[top_ten_ids]
+    
+    return top_ten_cell_ids  
+
+
+def bottomTenCells(values, cell_ids):
+    '''Return top ten cells based on values
+    
+    Inputs:
+        values -- 1D float array of values to choose top ten from
+        cell_ids -- 1D int array of cell indices to consider
+        
+    Returns:
+        top_ten_cell_ids -- 1D int array of cell indexes
+    '''
+    
+    # Sort new filtered array
+    sorted_ids = np.argsort(values)
+
+    # Final ten cell indices
+    bottom_ten_ids = sorted_ids[:10]
+    bottom_ten_cell_ids = cell_ids[bottom_ten_ids]
+    
+    return bottom_ten_cell_ids
+    
+    
 def plotCellSTAs(obj, cell_ids, fig_save_path, save=False):
     '''Plot and save stimulus-triggered average calcium traces (dFF)
     
@@ -502,6 +544,23 @@ def plotCellMasks(obj, top_ten_cell_ids, stam_save_path, fig_save_path, save=Fal
                                  obj.sheet_name + '_' + obj.stim_type + '_top_ten_cells.png'))
             plt.savefig(os.path.join(fig_save_path,
                                  obj.sheet_name + '_' + obj.stim_type + '_top_ten_cells.svg'))
+
+            
+def plotColour(trial_type):
+    '''Function for choosing plotting colour based on trial type
+    
+    Inputs:
+        trial_type -- string indicating the trial type
+        
+    Returns:
+        trial_colour -- 
+    '''
+    
+    trial_types = np.array(['pr', 'ps', 'w', 'none'])
+    colours = np.array(['C0', 'C1', 'C3', 'C2'])
+    trial_colour = colours[np.where(trial_types==trial_type)][0]
+    
+    return trial_colour
             
             
 def plotCellPositions(obj, cell_ids, fig_save_path, save=False):
@@ -518,12 +577,14 @@ def plotCellPositions(obj, cell_ids, fig_save_path, save=False):
     cell_pos = np.array(obj.cell_med[0])
     pos = cell_pos[cell_ids]
     
-    # plot colours
-    stims = np.array(['pr', 'ps', 'w', 'none'])
-    colours = np.array(['C0', 'C1', 'C3', 'C2'])
+    plot_colour = plotColour(obj.stim_type)
     
     plt.figure();
-    plt.scatter(pos[:,1], pos[:,0], color=colours[np.where(stims==obj.stim_type)])
+    plt.scatter(pos[:,1], pos[:,0], color=plot_colour)
+    
+    for i, cell in enumerate(cell_ids):
+        plt.text(pos[i,1]+20, pos[i,0]+10, str(cell), fontsize=8)
+        
     plt.axis([0, obj.frame_x, 0, obj.frame_y])
     plt.ylabel('y_coords (pixels)')
     plt.xlabel('x_coords (pixels)')
@@ -537,27 +598,26 @@ def plotCellPositions(obj, cell_ids, fig_save_path, save=False):
                                  obj.sheet_name + '_' + obj.stim_type + '_top_ten_positions.png'))
         plt.savefig(os.path.join(fig_save_path,
                                  obj.sheet_name + '_' + obj.stim_type + '_top_ten_positions.svg'))
-        
-        
-def topTenCells(values, cell_ids):
-    '''Return top ten cells based on values
+
+
+def responseFreqTrial(trial_bool, cells_bool):
+    '''Plot the percentage of cells responding on each trial
     
     Inputs:
-        values -- 1D float array of values to choose top ten from
-        cell_ids -- 1D int array of cell indices to consider
+        trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
+        cells_bool -- 1D boolean array of cells of interest
         
     Returns:
-        top_ten_cell_ids -- 1D int array of cell indexes
+        trial_responses -- 1D array of % of trials each cell responded on
+        trial_bins -- 1D array of range 1:n(trials)
     '''
     
-    # Sort new filtered array
-    sorted_amps_ids = np.argsort(values)
-
-    # Final ten cell indices
-    top_ten_amp_ids = sorted_amps_ids[-10:]
-    top_ten_cell_ids = cell_ids[top_ten_amp_ids]
+    trial_bool = trial_bool[cells_bool, :]
     
-    return top_ten_cell_ids
+    trial_responses = np.sum(trial_bool, axis=0)/trial_bool.shape[0] * 100
+    trial_bins = np.arange(trial_responses.shape[0]);
+    
+    return trial_responses, trial_bins
 
 
 def plotResponseFreqTrial(obj, trial_bool, cells_bool, ax):
@@ -569,18 +629,14 @@ def plotResponseFreqTrial(obj, trial_bool, cells_bool, ax):
         cells_bool -- 1D boolean array of cells of interest
         ax -- axis object on which to plot
     '''
-    trial_bool = trial_bool[cells_bool, :]
     
-    trial_responses = np.sum(trial_bool, axis=0)/trial_bool.shape[0] * 100
-    trial_bins = np.arange(trial_responses.shape[0]);
+    trial_responses, trial_bins = responseFreqTrial(trial_bool, cells_bool)
     
-    stims = np.array(['pr', 'ps', 'w', 'none'])
-    colours = np.array(['C0', 'C1', 'C3', 'C2'])
-    stim_colour = colours[np.where(stims==obj.stim_type)]
+    plot_colour = plotColour(obj.stim_type)
     
     ax.hist(trial_bins, weights=trial_responses, bins=trial_bins,
                  align='left', histtype='step',
-                 alpha=0.6, lw=2, color=stim_colour, label=obj.stim_type);
+                 alpha=0.6, lw=2, color=plot_colour, label=obj.stim_type);
     ax.set_xlabel('trial #')
     ax.set_ylabel('% cells responding')
     ax.set_title(obj.sheet_name + ' cell responses over time')
@@ -596,18 +652,17 @@ def plotResponseFreqCell(obj, trial_bool, cells_bool, ax):
         cells_bool -- 1D boolean array of cells of interest
         ax -- axis object on which to plot
     '''
+    
     trial_bool = trial_bool[cells_bool, :]
     
     cell_responses = np.sum(trial_bool, axis=1)/trial_bool.shape[1] * 100
     cell_bins = np.arange(cell_responses.shape[0]);
     
-    stims = np.array(['pr', 'ps', 'w', 'none'])
-    colours = np.array(['C0', 'C1', 'C3', 'C2'])
-    stim_colour = colours[np.where(stims==obj.stim_type)]
+    plot_colour = plotColour(obj.stim_type)
     
     ax.hist(cell_bins, weights=cell_responses, bins=cell_bins,
                  align='left', histtype='step',
-                 alpha=0.6, color=stim_colour, label=obj.stim_type);
+                 alpha=0.6, color=plot_colour, label=obj.stim_type);
     ax.set_xlabel('cell #');
     ax.set_ylabel('% trials with responses');
     ax.set_title(obj.sheet_name + ' trial responses per cell');
@@ -616,7 +671,7 @@ def plotResponseFreqCell(obj, trial_bool, cells_bool, ax):
         targets = np.where(obj.targeted_cells[cells_bool])[0]
         val = 102 if obj.stim_type == 'pr' else 105
         ax.scatter(targets, np.repeat(val, targets.shape),
-                   s=10, color=stim_colour, label=obj.stim_type + ' target')
+                   s=10, color=plot_colour, label=obj.stim_type + ' target')
         
     ax.legend()
     
@@ -630,22 +685,20 @@ def plotCellResponseRaster(obj, trial_bool, cells_bool, ax):
         cells_bool -- 1D boolean array of cells of interest
         ax -- axis object on which to plot [2 x 2]
     '''
+    
+    trial_responses, trial_bins = responseFreqTrial(trial_bool, cells_bool)
+    
     trial_bool = trial_bool[cells_bool, :]
     cell_raster = np.where(trial_bool)
-
-    trial_responses = np.sum(trial_bool, axis=0)/trial_bool.shape[0] * 100
-    trial_bins = np.arange(trial_responses.shape[0]);
-
+    
     cell_responses =  np.sum(trial_bool, axis=1)/trial_bool.shape[1] * 100
     cell_bins = np.arange(cell_responses.shape[0]);
     
-    stims = np.array(['pr', 'ps', 'w', 'none'])
-    colours = np.array(['C0', 'C1', 'C3', 'C2'])
-    stim_colour = colours[np.where(stims==obj.stim_type)]
+    plot_colour = plotColour(obj.stim_type)
     
     ax[0,0].hist(trial_bins, weights=trial_responses, bins=trial_bins,
                  align='left', histtype='step', orientation='vertical',
-                 alpha=0.6, lw=3, color=stim_colour, label=obj.stim_type);
+                 alpha=0.6, lw=3, color=plot_colour, label=obj.stim_type);
     ax[0,0].set_ylabel('% cells responding');
     ax[0,0].set_title('Cell responses over time');
     ax[0,0].legend();
@@ -653,14 +706,14 @@ def plotCellResponseRaster(obj, trial_bool, cells_bool, ax):
     ax[0,1].set_frame_on(False);
 
     ax[1,0].scatter(cell_raster[1], cell_raster[0], 
-                    s=15, alpha=0.8, color=stim_colour, label=obj.stim_type);
+                    s=15, alpha=0.8, color=plot_colour, label=obj.stim_type);
     ax[1,0].set_ylabel('cell #');
     ax[1,0].set_xlabel('trial #');
     ax[1,0].set_title(obj.sheet_name + ' raster of single trial responses');
 
     ax[1,1].hist(cell_bins, weights=cell_responses, bins=cell_bins, 
                  align='left', histtype='step', orientation='horizontal',
-                 alpha=0.6, color=stim_colour, label=obj.stim_type);
+                 alpha=0.6, color=plot_colour, label=obj.stim_type);
     ax[1,1].set_xlabel('% trials responded on');
     ax[1,1].yaxis.set_label_position("right");
     ax[1,1].set_ylabel('Trial responses per cell', rotation=270);
@@ -669,20 +722,94 @@ def plotCellResponseRaster(obj, trial_bool, cells_bool, ax):
         targets = np.where(obj.targeted_cells[cells_bool])[0]
         val = 102 if obj.stim_type == 'pr' else 105
         ax[1,1].scatter(np.repeat(val, targets.shape), targets,
-                   s=10, color=stim_colour, label=obj.stim_type + ' target')
+                   s=10, color=plot_colour, label=obj.stim_type + ' target')
     ax[1,1].legend(loc='upper center')
     
 
-def responseFreqTrial(trial_bool, cells_bool):
+def responseAmpTrial(obj, trial_bool, cells_bool):
     '''Plot the percentage of cells responding on each trial
     
     Inputs:
+        obj -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
+        ax -- axis object on which to plot
+        
+    Returns: 
+        trial_amp_means -- mean of all cell dFF changes per trial
     '''
+    
     trial_bool = trial_bool[cells_bool, :]
     
-    trial_responses = np.sum(trial_bool, axis=0)/trial_bool.shape[0] * 100
-    trial_bins = np.arange(trial_responses.shape[0]);
+    resp_cell_amps = copy.deepcopy(obj.all_amplitudes[0][cells_bool]) # amplitudes of responders [cell x trial]
+    resp_cell_amps[~trial_bool] = np.nan
+
+    trial_amp_means = np.nanmean(resp_cell_amps, axis=0)
     
-    return trial_responses
+    return trial_amp_means
+    
+    
+def plotResponseAmpTrial(obj, trial_bool, cells_bool, ax):
+    '''Plot the percentage of cells responding on each trial
+    
+    Inputs:
+        obj -- pickled object containing metadata
+        trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
+        cells_bool -- 1D boolean array of cells of interest
+        ax -- axis object on which to plot
+    '''
+
+    trial_amp_means = responseAmpTrial(obj, trial_bool, cells_bool)
+    
+    plot_colour = plotColour(obj.stim_type)
+    
+    ax.plot(trial_amp_means, alpha=0.8, lw=2, color=plot_colour, label=obj.stim_type);
+    ax.set_xlabel('trial #')
+    ax.set_ylabel('Change in dFF')
+    ax.set_title(obj.sheet_name + ' mean cell change in dFF per trial')
+    ax.axis([-0.5, 101, 0, 3.5])
+    ax.legend(loc='upper right')    
+    
+    
+def responseAmpSumTrial(obj, trial_bool, cells_bool):
+    '''Plot the percentage of cells responding on each trial
+    
+    Inputs:
+        obj -- pickled object containing metadata
+        trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
+        cells_bool -- 1D boolean array of cells of interest
+        ax -- axis object on which to plot
+        
+    Returns:
+        trial_amp_sum -- sum of all dFF changes per trial
+    '''
+    
+    trial_bool = trial_bool[cells_bool, :]
+    
+    resp_cell_amps = copy.deepcopy(obj.all_amplitudes[0][cells_bool]) # amplitudes of responders [cell x trial]
+    resp_cell_amps[~trial_bool] = np.nan
+
+    trial_amp_sum = np.nansum(resp_cell_amps, axis=0) 
+    
+    return trial_amp_sum
+
+
+def plotResponseAmpSumTrial(obj, trial_bool, cells_bool, ax):
+    '''Plot the percentage of cells responding on each trial
+    
+    Inputs:
+        obj -- pickled object containing metadata
+        trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
+        cells_bool -- 1D boolean array of cells of interest
+        ax -- axis object on which to plot
+    '''
+    
+    trial_amp_sum = responseAmpSumTrial(obj, trial_bool, cells_bool)
+        
+    plot_colour = plotColour(obj.stim_type)
+    
+    ax.plot(trial_amp_sum, alpha=0.8, lw=2, color=plot_colour, label=obj.stim_type);
+    ax.set_xlabel('trial #')
+    ax.set_ylabel('Summed change in dFF')
+    ax.set_title(obj.sheet_name + ' mean summed change in dFF per trial')
+    ax.legend(loc='upper right')    
