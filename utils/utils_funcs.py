@@ -9,6 +9,7 @@ import math
 import bisect
 import copy
 from scipy import stats
+import scipy.io as spio
 
 # global plotting params
 params = {'legend.fontsize': 'x-large',
@@ -892,3 +893,49 @@ def points_in_circle_np(radius, x0=0, y0=0, ):
     x, y = np.where((x_[:,np.newaxis] - x0)**2 + (y_ - y0)**2 <= radius**2)
     for x, y in zip(x_[x], y_[y]):
         yield x, y
+
+
+
+
+class LoadMat():
+    def __init__(self, filename):
+
+        '''
+        This function should be called instead of direct spio.loadmat
+        as it cures the problem of not properly recovering python dictionaries
+        from mat files. It calls the function check keys to cure all entries
+        which are still mat-objects
+        
+        Mostly stolen from some hero https://stackoverflow.com/a/8832212
+        
+        '''
+
+        self.dict_ = spio.loadmat(filename, struct_as_record=False, squeeze_me=True)
+
+        self._check_keys()
+
+    def _check_keys(self):
+
+        '''
+        checks if entries in dictionary are mat-objects. If yes
+        todict is called to change them to nested dictionaries
+        '''
+        for key in self.dict_:
+            if isinstance(self.dict_[key], spio.matlab.mio5_params.mat_struct):
+                self.dict_[key] = self._todict(self.dict_[key])
+
+    @staticmethod
+    def _todict(matobj):
+        '''
+        A recursive function which constructs from matobjects nested dictionaries
+        '''
+        dict_ = {}
+        for strg in matobj._fieldnames:
+            elem = matobj.__dict__[strg]
+            if isinstance(elem, spio.matlab.mio5_params.mat_struct):
+                dict_[strg] = LoadMat._todict(elem)
+            else:
+                dict_[strg] = elem
+        return dict_
+
+

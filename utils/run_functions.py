@@ -9,8 +9,9 @@ import utils_funcs as utils
 from scipy import signal
 import random
 import copy
-''' functions that operate on BlimpImport objects (runs) '''
+import cv2
 
+''' functions that operate on BlimpImport objects (runs) '''
 
 def filter_unhealthy_cells(run, threshold=5):
 
@@ -573,4 +574,174 @@ def reclassify_trials(run, t_toosoon=75):
     run.false_miss = np.where((first_lick < 1000) & (run.outcome=='miss'))[0]
     
     return run
+
+
+class GetTargets():
+
+    def __init__(self, run):
+
+        self.run = run
+        um_per_pixel = 1.35  # Correct-ish at 0.8x, check me
+        stim_radius = 20  #  Distance (um) from stim to be considered target
+        self.radius_px = stim_radius * um_per_pixel
+
+        self.cell_coords = self.get_normalised_coords()
+        assert np.min(self.cell_coords) > 0 and np.max(self.cell_coords) < 1024
+        #cell_coords = cell_coords[session.filtered_neurons]
+
+        if run.mouse_id == 'RL048' or run.mouse_id == 'J048':
+            self.single_plane = False
+        else:
+            self.single_plane = True
+
+
+    @property
+    def groups(self):
+
+        groups = {}
+        blimp_path = self.pstation2qnap(self.run.blimp_path)
+        for folder in os.listdir(blimp_path):
+            
+            # Folders containing e.g. .mat files from groups have only numeric characters or _
+            if all([np.logical_or(char.isdigit(), char=='_') for char in folder]):
+                
+                # Add the coordinates of stimulated cells in test trials
+                group = {}
+                
+                mat_path = os.path.join(blimp_path, folder, 'matlab_input_parameters.mat')
+                loadmat = utils.LoadMat(mat_path)
+                #mat = loadmat(mat_path)
+                mat = loadmat.dict_
+                
+                group['x'] = mat['obj']['split_points']['X'] 
+                group['y'] = mat['obj']['split_points']['Y'] 
+                
+                groups[folder] = group
+                
+        # Add easy trials to groups dict. The mat in the loop should have an all_points field
+        group = {}
+        group['x'] = mat['obj']['all_points']['X'] 
+        group['y'] = mat['obj']['all_points']['Y'] 
+        groups['all'] = group
+
+        # Add a nogo key for easy hashing
+        group = {}
+        group['x'] = None
+        group['y'] = None
+        groups['nogo'] = group
+        
+        return groups
+
+    @property
+    def trial_group(self):
+
+        trial_group = []
+        for info in self.run.trial_info:
+            if info == 'all_cells_stimulated':
+                trial_group.append('all')
+            elif 'Nogo Trial' in info:
+                trial_group.append('nogo')
+            elif 'Go trial' in info:
+                # Will probably break on windows but pathlib will not
+                # parse this string for some reason and cannot split on os.sep
+                trial_group.append(info.split(' ')[-1].split('\\')[-1])
+            else:
+                raise ValueError('Not sure what this trial is m8')
+            
+        trial_group = np.array(trial_group)
+            
+        assert len(trial_group) == len(Subsets(self.run).trial_subsets)
+        assert np.all(np.where(Subsets(self.run).trial_subsets==150)[0] == np.where(trial_group=='all')[0])
+        assert np.all(np.where(Subsets(self.run).trial_subsets==0)[0] == np.where(trial_group=='nogo')[0])
+
+        return trial_group
+
+    def build_mask(self, group):
+        
+        
+        if self.single_plane:
+            # I am using 512 even though actually 514. Shouldn't make a difference as using a
+            # > 25 pixel radius for target. But check if need high precision
+            mask = np.zeros((512, 1024))
+        else:
+            mask = np.zeros((1024,1024))
+
+        for x,y in zip(group['x'], group['y']):
+
+            if self.single_plane:
+                # I think you just need to rescale x in the obfov condition. Be careful and check though
+                scale_y = 1
+            else:
+                # I have rescaled by just multiplying coordinates by 2, go careful with this as not 
+                # 100% sure it is correct
+                scale_y = 2
+                
+            scale_x = 2
+            
+            mask = cv2.circle(mask, (int(scale_x*x), int(scale_y*y)) , radius=int(self.radius_px), color=1, thickness=-1)
+
+        return mask.astype('bool')
+
+
+    def get_normalised_coords(self): 
+
+        stat = self.run.stat
+        cell_coords = np.array([stat[cell]['med'] for cell in range(len(stat))])
+
+        try:
+            self.planes = np.array([stat[cell]['iplane'] for cell in range(len(stat))])
+            cell_coords[self.planes==1, 1] = cell_coords[self.planes==1, 1] - 1024 
+            cell_coords[self.planes==2, 0] = cell_coords[self.planes==2, 0] - 1024 
+        except KeyError:  # Single plane
+            pass
+        
+        return cell_coords.astype('int') 
+
+
+    @property
+    def is_target(self):
+
+        is_target = []
+
+        for trial in self.trial_group:
+
+            if trial == 'nogo':
+                is_target.append(np.repeat(False, len(self.cell_coords)))
+                continue
+                
+            group = self.groups[trial]
+            
+            mask = self.build_mask(group)
+            
+            # xy indexing rather than ij seems to be correct on plot but check
+            is_target.append(
+                [mask[coord[0], coord[1]] for coord in self.cell_coords]
+            )
+
+        is_target = np.array(is_target)
+        #is_target = is_target[session.nonnan_trials]  Need to do this in popoff
+
+        # Check no cells are marked as targets on nogo trials
+        assert sum(np.sum(is_target, axis=1)[np.logical_or(self.run.outcome=='fp', self.run.outcome=='cr')]) == 0
+
+        # Expand is target mask to include every frame of trial
+        # YOU NEED TO DO THIS IN POPOFF
+        # return np.repeat(is_target.T[:, :, np.newaxis], session.n_times, axis=2)
+
+        return is_target.T
+
+    @staticmethod
+    def pstation2qnap(path):
+        
+        ''' Converts a packerstation path to a qnap path '''
+        
+        # Path to qnap data folder
+        qnap_data = os.path.expanduser('~/mnt/qnap/Data')
+        
+        # Part of the pstation path that is shared with the qnap path
+        # Split with the seperator as path.join doesn't like leading
+        # slashes.
+        shared_path = path.split('Data'+ os.sep)[1]
+        return os.path.join(qnap_data, shared_path)
+
 
