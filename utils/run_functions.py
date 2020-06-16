@@ -582,12 +582,15 @@ class GetTargets():
 
         self.run = run
         um_per_pixel = 1.35  # Correct-ish at 0.8x, check me
-        stim_radius = 20  #  Distance (um) from stim to be considered target
+        stim_radius = 17.5  #  Distance (um) from stim to be considered target
         self.radius_px = stim_radius * um_per_pixel
 
         self.cell_coords = self.get_normalised_coords()
-        assert np.min(self.cell_coords) > 0 and np.max(self.cell_coords) < 1024
-        #cell_coords = cell_coords[session.filtered_neurons]
+
+        min_coord = np.min([np.min(np.stack(cell_coord)) for cell_coord in self.cell_coords])
+        max_coord = np.max([np.max(np.stack(cell_coord)) for cell_coord in self.cell_coords])
+
+        assert min_coord > 0 and max_coord < 1024
 
         if run.mouse_id == 'RL048' or run.mouse_id == 'J048':
             self.single_plane = False
@@ -660,9 +663,7 @@ class GetTargets():
         
         
         if self.single_plane:
-            # I am using 512 even though actually 514. Shouldn't make a difference as using a
-            # > 25 pixel radius for target. But check if need high precision
-            mask = np.zeros((512, 1024))
+            mask = np.zeros((514, 1024))
         else:
             mask = np.zeros((1024,1024))
 
@@ -686,7 +687,8 @@ class GetTargets():
     def get_normalised_coords(self): 
 
         stat = self.run.stat
-        cell_coords = np.array([stat[cell]['med'] for cell in range(len(stat))])
+        #cell_coords = np.array([stat[cell]['med'] for cell in range(len(stat))])
+        cell_coords = np.array([[s['ypix'], s['xpix']] for s in stat])
 
         try:
             self.planes = np.array([stat[cell]['iplane'] for cell in range(len(stat))])
@@ -695,7 +697,7 @@ class GetTargets():
         except KeyError:  # Single plane
             pass
         
-        return cell_coords.astype('int') 
+        return cell_coords
 
 
     @property
@@ -715,18 +717,13 @@ class GetTargets():
             
             # xy indexing rather than ij seems to be correct on plot but check
             is_target.append(
-                [mask[coord[0], coord[1]] for coord in self.cell_coords]
+            [mask[coord[0], coord[1]].any() for coord in self.cell_coords]
             )
 
         is_target = np.array(is_target)
-        #is_target = is_target[session.nonnan_trials]  Need to do this in popoff
 
         # Check no cells are marked as targets on nogo trials
         assert sum(np.sum(is_target, axis=1)[np.logical_or(self.run.outcome=='fp', self.run.outcome=='cr')]) == 0
-
-        # Expand is target mask to include every frame of trial
-        # YOU NEED TO DO THIS IN POPOFF
-        # return np.repeat(is_target.T[:, :, np.newaxis], session.n_times, axis=2)
 
         return is_target.T
 
