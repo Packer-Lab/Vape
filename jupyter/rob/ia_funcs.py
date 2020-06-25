@@ -21,6 +21,18 @@ sns.set()
 sns.set_style('white')
 
 
+def meanError(arr, axis=0, n=False):
+    
+    if not n:
+        n = arr.shape[0]
+    
+    mean = np.nanmean(arr, axis)
+    std = np.nanstd(arr, axis)
+    ci = 1.960 * (std/np.sqrt(n)) # 1.960 is z for 95% confidence interval, standard deviation divided by the sqrt of N samples (# cells)
+    
+    return mean, std, ci
+
+
 def points_in_circle_np(radius, x0=0, y0=0, ):
     '''Yields the points in a circle of a defined radius and position
     
@@ -106,7 +118,7 @@ def staMovie(output_dir, pkl_list=False):
             print('STA movie made for', np.shape(trial_stack)[0], 'trials:', output_path)
             
     
-def cellFluTime(pkl_list):
+def cellFluTime(pkl_list, trial_types='pr ps w none', cell_type=False):
     '''Plots the mean raw fluorescence of all curated cells
     
     Inputs:
@@ -121,29 +133,45 @@ def cellFluTime(pkl_list):
             
             with open(pkl, 'rb') as f:
                 ses_obj = pickle.load(f)
-
-            mean_f = np.concatenate((np.mean(ses_obj.photostim_r.raw[0], axis=0),
-                                     np.mean(ses_obj.photostim_s.raw[0], axis=0))
-                                    )
             
-            if ses_obj.whisker_stim.n_frames > 0:
+            mean_f = np.array([])
+            
+            if 'pr' in trial_types:
+                if cell_type is 'target':
+                    pr_targ = ses_obj.photostim_r.targeted_cells
+                    pr_mean = np.mean(ses_obj.photostim_r.raw[0][pr_targ], axis=0)
+                else:
+                    pr_mean = np.mean(ses_obj.photostim_r.raw[0], axis=0)
+            
+            if 'ps' in trial_types:
+                if cell_type is 'target':
+                    ps_targ = ses_obj.photostim_s.targeted_cells
+                    ps_mean = np.mean(ses_obj.photostim_s.raw[0][ps_targ], axis=0)
+                else:
+                    ps_mean = np.mean(ses_obj.photostim_s.raw[0], axis=0)
+            
+            mean_f = np.concatenate((pr_mean, ps_mean))
+            
+            if 'w' in trial_types and ses_obj.whisker_stim.n_frames > 0:
                 mean_f = np.concatenate((mean_f, np.mean(ses_obj.whisker_stim.raw[0], axis=0)))
                                     
-            if ses_obj.spont.n_frames > 0:
+            if 'none' in trial_types and ses_obj.spont.n_frames > 0:
                 mean_f = np.concatenate((mean_f, np.mean(ses_obj.spont.raw[0], axis=0)))
 
             count = 0
-
+            
             for frames in ses_obj.frame_list:
                 x = range(count,count+frames)
-                if len(pkl_list) > 1:
-                    ax[i].plot(x, mean_f[x]);
-                    ax[i].set_title(pkl.split('/')[-1])
-                    ax[i].set_ylabel('mean_raw_f')
-                else:
-                    ax.plot(x, mean_f[x]);
-                    ax.set_title(pkl.split('/')[-1])
-                    ax.set_ylabel('mean_raw_f')
+                
+                if max(x) < mean_f.shape[0]:
+                    if len(pkl_list) > 1:
+                        ax[i].plot(x, mean_f[x]);
+                        ax[i].set_title(pkl.split('/')[-1])
+                        ax[i].set_ylabel('mean_raw_f')
+                    else:
+                        ax.plot(x, mean_f[x]);
+                        ax.set_title(pkl.split('/')[-1])
+                        ax.set_ylabel('mean_raw_f')
                     
                 count += frames
 
@@ -370,7 +398,8 @@ def s2pMaskStack(pkl_list, stam_save_path, parent_folder):
                 ps_sta_img = tf.imread(os.path.join(stam_save_path, file))
                 ps_sta_img = np.expand_dims(ps_sta_img, axis=0)
         
-        stack = np.append(stack, w_sta_img, axis=0)
+        if w_obj.n_frames > 0:
+            stack = np.append(stack, w_sta_img, axis=0)
         stack = np.append(stack, pr_sta_img, axis=0)
         stack = np.append(stack, ps_sta_img, axis=0)
         
@@ -481,6 +510,7 @@ def plotCellSTAs(obj, cell_ids, fig_save_path, save=False):
     
     plt.figure(figsize=(15,5));
     plt.plot(obj.time, stas[cell_ids].T);
+    plt.hlines(0, xmin=-2, xmax=10, linestyles='dashed', colors='k')
     plt.legend(cell_ids);
     plt.title(obj.sheet_name + '_' + obj.stim_type + ' top ten largest STAs')
     plt.ylabel('dF/F (baseline-subtracted)')
@@ -584,6 +614,11 @@ def plotCellPositions(obj, cell_ids, fig_save_path, save=False):
     
     for i, cell in enumerate(cell_ids):
         plt.text(pos[i,1]+20, pos[i,0]+10, str(cell), fontsize=8)
+    
+    if any(s in obj.stim_type for s in ['pr', 'ps']):
+        for target in obj.target_areas:
+            med_targ = target[int(len(target)/2)]
+            plt.scatter(med_targ[1], med_targ[0], color='k')
         
     plt.axis([0, obj.frame_x, 0, obj.frame_y])
     plt.ylabel('y_coords (pixels)')
@@ -812,4 +847,4 @@ def plotResponseAmpSumTrial(obj, trial_bool, cells_bool, ax):
     ax.set_xlabel('trial #')
     ax.set_ylabel('Summed change in dFF')
     ax.set_title(obj.sheet_name + ' mean summed change in dFF per trial')
-    ax.legend(loc='upper right')    
+    ax.legend(loc='upper right')  

@@ -18,6 +18,7 @@ import bisect
 
 from random import randint
 from scipy import stats, signal
+import statsmodels.stats as smstats
 
 from utils.gsheets_importer import gsheet2df, split_df, path_conversion, path_finder
 from utils.paq2py import *
@@ -613,6 +614,7 @@ class interarealAnalysis():
         self.raw = []
         self.dfof = []
         self.mean_img = []
+        self.mean_imgE = []
 
         for plane in range(self.n_planes):
                 
@@ -658,7 +660,7 @@ class interarealAnalysis():
             self.cell_plane.append(cell_plane)
     
     
-    def _detrendFluTrial(self, flu_trial):
+    def _detrendFluTrial(self, flu_trial, stim_end):
         
         flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
         flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
@@ -684,7 +686,7 @@ class interarealAnalysis():
                 
                 if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                     # detrend only the flu_trial outside of stim artifact
-                    flu_trial = self._detrendFluTrial(flu_trial)
+                    flu_trial = self._detrendFluTrial(flu_trial, stim_end)
                     
                 # baseline flu_trial to first 2 seconds
                 baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
@@ -717,8 +719,14 @@ class interarealAnalysis():
         self.all_amplitudes.append(all_amplitudes)
         
         # significance test, [cell (p-value)]
-        t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
-        self.t_tests.append(t_tests[1][:])
+#         t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
+#         self.t_tests.append(t_tests[1][:])
+        wilcoxons = np.empty(self.n_units[0])
+
+        for cell in range(self.n_units[0]):
+            wilcoxons[cell] = stats.wilcoxon(post_array[cell], pre_array[cell])[1]
+
+        self.wilcoxons.append(wilcoxons)
         
         return trial_array 
     
@@ -764,13 +772,18 @@ class interarealAnalysis():
         
         
     def _sigTestAvgDFF(self, plane):
-  
-        p_vals = self.t_tests[plane]
 
-        bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05 / self.n_units[plane]]
-        sig_units = np.zeros(self.n_units[plane], dtype='bool')
-        sig_units[bonf_corr] = True
+#         p_vals = self.t_tests[plane]
 
+#         bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05 / self.n_units[plane]]
+#         sig_units = np.zeros(self.n_units[plane], dtype='bool')
+#         sig_units[bonf_corr] = True
+
+        p_vals = self.wilcoxons[plane]
+        
+        sig_units, _, _, _ = smstats.multitest.multipletests(p_vals, alpha=0.1, method='fdr_bh', 
+                                                             is_sorted=False, returnsorted=False)
+        
         no_bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05]
         nomulti_sig_units = np.zeros(self.n_units[plane], dtype='bool')
         nomulti_sig_units[no_bonf_corr] = True
@@ -872,7 +885,7 @@ class interarealAnalysis():
 
         target_areas = []
 
-        radius = ( (self.spiral_size / 2) + 10) / self.pix_sz_x # adding 10 um to account for photostim res
+        radius = int(((self.spiral_size/2)+10)/self.pix_sz_x) # adding 10 um for photostim res
         for coord in targ_coords:
             target_area = np.array([item for item in points_in_circle_np(radius, x0=coord[0], y0=coord[1])])
             if not any([max(target_area[:,1]) > frame_x,
@@ -931,6 +944,7 @@ class interarealAnalysis():
     
     def _euclidDist(self, resp_positions):
         
+        # mean distance of targets from centroid
         resp_coords = list(zip(*resp_positions))
         centroidx = np.mean(resp_coords[0])
         centroidy = np.mean(resp_coords[1])
@@ -1025,6 +1039,7 @@ class interarealAnalysis():
                 
                 self.prob_response = [] # proportion of trials responding on
                 self.t_tests = [] # result from related samples t-test between dff test periods
+                self.wilcoxons = []
                 self.trial_sig_dff = [] # based on dff increase above std of baseline
                 self.trial_sig_dfsf = [] # based on df/std(f) increase in test period post-stim
                 self.sta_sig = [] # based on t-test between dff test periods
