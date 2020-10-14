@@ -29,8 +29,9 @@ def meanError(arr, axis=0, n=False):
     mean = np.nanmean(arr, axis)
     std = np.nanstd(arr, axis)
     ci = 1.960 * (std/np.sqrt(n)) # 1.960 is z for 95% confidence interval, standard deviation divided by the sqrt of N samples (# cells)
+    sem = std/np.sqrt(n)
     
-    return mean, std, ci
+    return mean, std, ci, sem
 
 
 def points_in_circle_np(radius, x0=0, y0=0, ):
@@ -453,46 +454,46 @@ def combineIscell(s2p_path, extra_iscell_path):
     np.save('iscell.npy', iscell)
     
     
-def topTenCells(values, cell_ids):
-    '''Return top ten cells based on values
+def topCells(values, cell_ids, amount):
+    '''Return top cells based on values
     
     Inputs:
-        values -- 1D float array of values to choose top ten from
+        values -- 1D float array of values to choose top from
         cell_ids -- 1D int array of cell indices to consider
         
     Returns:
-        top_ten_cell_ids -- 1D int array of cell indexes
+        top_cell_ids -- 1D int array of cell indexes
     '''
     
     # Sort new filtered array
     sorted_ids = np.argsort(values)
 
     # Final ten cell indices
-    top_ten_ids = sorted_ids[-10:]
-    top_ten_cell_ids = cell_ids[top_ten_ids]
+    top_ids = sorted_ids[-amount:]
+    top_cell_ids = cell_ids[top_ids]
     
-    return top_ten_cell_ids  
+    return top_cell_ids  
 
 
-def bottomTenCells(values, cell_ids):
-    '''Return top ten cells based on values
+def bottomCells(values, cell_ids, amount):
+    '''Return bottom cells based on values
     
     Inputs:
-        values -- 1D float array of values to choose top ten from
+        values -- 1D float array of values to choose bottom from
         cell_ids -- 1D int array of cell indices to consider
         
     Returns:
-        top_ten_cell_ids -- 1D int array of cell indexes
+        top_cell_ids -- 1D int array of cell indexes
     '''
     
     # Sort new filtered array
     sorted_ids = np.argsort(values)
 
     # Final ten cell indices
-    bottom_ten_ids = sorted_ids[:10]
-    bottom_ten_cell_ids = cell_ids[bottom_ten_ids]
+    bottom_ids = sorted_ids[:amount]
+    bottom_cell_ids = cell_ids[bottom_ids]
     
-    return bottom_ten_cell_ids
+    return bottom_cell_ids
     
     
 def plotCellSTAs(obj, cell_ids, fig_save_path, save=False):
@@ -508,19 +509,29 @@ def plotCellSTAs(obj, cell_ids, fig_save_path, save=False):
     # STA calcium traces
     stas = np.array(obj.stas[0])
     
-    plt.figure(figsize=(15,5));
+    trial_std = np.nanstd(obj.all_trials[0][cell_ids], axis=2)
+    trial_sem = trial_std/np.sqrt(obj.n_trials)
+    
+    plt.figure(figsize=(15,10));
     plt.plot(obj.time, stas[cell_ids].T);
-    plt.hlines(0, xmin=-2, xmax=10, linestyles='dashed', colors='k')
+    
+    for i,cell in enumerate(cell_ids):
+        trial_mean = stas[cell]
+        plt.fill_between(obj.time, trial_mean + trial_sem[i], trial_mean - trial_sem[i],
+                        alpha=0.2, ec='k');
+    
+    plt.hlines(0, xmin=-2, xmax=2, linestyles='dashed', colors='k')
     plt.legend(cell_ids);
     plt.title(obj.sheet_name + '_' + obj.stim_type + ' top ten largest STAs')
     plt.ylabel('dF/F (baseline-subtracted)')
     plt.xlabel('time (sec)')
+    plt.axis(xmin=-1, xmax=2, ymin=-1, ymax=0.2);
     
     if save:
         plt.savefig(os.path.join(fig_save_path,
-                                 obj.sheet_name + '_' + obj.stim_type + '_top_ten_traces.png'))
+                                 obj.sheet_name + '_' + obj.stim_type + '_top_traces.png'), bbox_inches = "tight")
         plt.savefig(os.path.join(fig_save_path,
-                                 obj.sheet_name + '_' + obj.stim_type + '_top_ten_traces.svg'))
+                                 obj.sheet_name + '_' + obj.stim_type + '_top_traces.svg'), bbox_inches = "tight")
         
         
 def plotCellMasks(obj, top_ten_cell_ids, stam_save_path, fig_save_path, save=False):
@@ -548,32 +559,47 @@ def plotCellMasks(obj, top_ten_cell_ids, stam_save_path, fig_save_path, save=Fal
     fig, ax = plt.subplots(nrows=3, ncols=10, figsize=(15,4), sharey=True)
     fig.suptitle(obj.sheet_name + '_' + obj.stim_type + ' corresponding cell raw, STA and mask images')
     
+    for a in ax.reshape(-1): a.axis('off')
+    
     for i, cell_med in enumerate(top_ten_pos):
         y = int(cell_med[0])
         x = int(cell_med[1])
         cell_id = top_ten_cell_ids[i]
+        pxlb = 20 # pixel buffer
 
-        cell_im = obj.mean_img[0][y-20 : y+20, x-20 : x+20]
+        cell_im = np.zeros([40,40]); xmin = ymin = 0; xmax = ymax = 40
+        img_y, img_x = obj.mean_imgE[0].shape
+        if y-pxlb<0: # this catches if ROI at top/left edge of FOV
+            ymin = np.absolute(y-pxlb) 
+            yimgmin = 0
+        else: yimgmin = y-pxlb
+        if x-pxlb<0: 
+            xmin = np.absolute(x-pxlb)
+            ximgmin = 0
+        else: ximgmin = x-pxlb
+        if y+pxlb>img_y: # this catches if ROI at bottom/right edge of FOV
+            ymax = ymax-(np.absolute(img_y-(y+pxlb))) 
+        if x+pxlb>img_x: 
+            xmax = xmax-(np.absolute(img_x-(x+pxlb)))
+        crop = obj.mean_imgE[0][yimgmin : y+pxlb, ximgmin : x+pxlb]
+        cell_im[ymin:ymax, xmin:xmax] = crop
         ax[0,i].imshow(cell_im)
         ax[0,i].set_title(cell_id)
-        ax[0,i].axis('off')
 
         mask_im = np.zeros([40,40])
-        cell_x = obj.cell_x[0][cell_id]-(x-20)
-        cell_y = obj.cell_y[0][cell_id]-(y-20)
+        cell_x = obj.cell_x[0][cell_id]-(x-pxlb)
+        cell_y = obj.cell_y[0][cell_id]-(y-pxlb)
         mask_im[cell_y, cell_x] = 255
         ax[1,i].imshow(mask_im)
-        ax[1,i].axis('off')
-        
-        sta_cell = sta_avg_img[y-20 : y+20, x-20 : x+20]
-        ax[2,i].imshow(sta_cell, vmin=0, vmax=25)
-        ax[2,i].axis('off')
+
+        sta_cell = sta_avg_img[yimgmin : y+pxlb, ximgmin : x+pxlb]
+        ax[2,i].imshow(sta_cell, vmin=0, vmax=10)
         
         if save:
             plt.savefig(os.path.join(fig_save_path,
-                                 obj.sheet_name + '_' + obj.stim_type + '_top_ten_cells.png'))
+                                 obj.sheet_name + '_' + obj.stim_type + '_top_cells.png'), bbox_inches = "tight")
             plt.savefig(os.path.join(fig_save_path,
-                                 obj.sheet_name + '_' + obj.stim_type + '_top_ten_cells.svg'))
+                                 obj.sheet_name + '_' + obj.stim_type + '_top_cells.svg'),bbox_inches = "tight")
 
             
 def plotColour(trial_type):
@@ -623,16 +649,16 @@ def plotCellPositions(obj, cell_ids, fig_save_path, save=False):
     plt.axis([0, obj.frame_x, 0, obj.frame_y])
     plt.ylabel('y_coords (pixels)')
     plt.xlabel('x_coords (pixels)')
-    plt.title(obj.sheet_name + '_' + obj.stim_type + ' top ten cell positions')
+    plt.title(obj.sheet_name + '_' + obj.stim_type + ' top cell positions')
     ax = plt.gca()
     ax.set_aspect('equal')
     ax.invert_yaxis()
     
     if save:
         plt.savefig(os.path.join(fig_save_path,
-                                 obj.sheet_name + '_' + obj.stim_type + '_top_ten_positions.png'))
+                                 obj.sheet_name + '_' + obj.stim_type + '_top_positions.png'), bbox_inches = "tight")
         plt.savefig(os.path.join(fig_save_path,
-                                 obj.sheet_name + '_' + obj.stim_type + '_top_ten_positions.svg'))
+                                 obj.sheet_name + '_' + obj.stim_type + '_top_positions.svg'), bbox_inches = "tight")
 
 
 def responseFreqTrial(trial_bool, cells_bool):

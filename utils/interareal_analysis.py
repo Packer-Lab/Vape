@@ -13,7 +13,6 @@ import copy
 import re
 import pickle
 import ntpath
-import csv
 import bisect
 
 from random import randint
@@ -227,19 +226,25 @@ class interarealProcessing():
         
     def addShamPhotostim(self):
         
-        self.spont.stim_start_frames = self.photostim_r.stim_start_frames
-        self.spont.naparm_path = self.photostim_r.naparm_path
-        self.spont.spiral_size = self.photostim_r.spiral_size 
-        self.spont.duration_frames = self.photostim_r.duration_frames
-        self.spont.stim_dur = self.photostim_r.stim_dur
-        self.spont.stim_freq = self.photostim_r.stim_freq
-        self.spont.single_stim_dur = self.photostim_r.single_stim_dur
-        self.spont.n_shots = self.photostim_r.n_shots
-        self.spont.n_groups = self.photostim_r.n_groups
-        self.spont.n_trials = self.photostim_r.n_trials
-        self.spont.inter_point_delay = self.photostim_r.inter_point_delay
-        self.spont.targeted_cells = self.photostim_r.targeted_cells
-        self.spont.n_targets = self.photostim_r.n_targets
+        if self.spont.naparm_path == 'none':
+            self.spont.stim_start_frames = self.photostim_r.stim_start_frames
+            self.spont.naparm_path = self.photostim_r.naparm_path
+            self.spont.spiral_size = self.photostim_r.spiral_size 
+            self.spont.duration_frames = self.photostim_r.duration_frames
+            self.spont.stim_dur = self.photostim_r.stim_dur
+            self.spont.stim_freq = self.photostim_r.stim_freq
+            self.spont.single_stim_dur = self.photostim_r.single_stim_dur
+            self.spont.n_shots = self.photostim_r.n_shots
+            self.spont.n_groups = self.photostim_r.n_groups
+            self.spont.n_trials = self.photostim_r.n_trials
+            self.spont.inter_point_delay = self.photostim_r.inter_point_delay
+            self.spont.targeted_cells = self.photostim_r.targeted_cells
+            self.spont.n_targets = self.photostim_r.n_targets
+        else: 
+            self.spont.photostimProcessing()
+            self.spont.n_trials = self.photostim_r.n_trials 
+            self.spont.targeted_cells = self.photostim_r.targeted_cells
+            self.spont.n_targets = self.photostim_r.n_targets
 
         
     def _targetedWhiskerCells(self, exp_obj):
@@ -441,20 +446,23 @@ class interarealAnalysis():
         for elem in root:
             if int(elem[0].get('InitialDelay')) > 0:
                 inter_point_delay = int(elem[0].get('InitialDelay'))
+                single_stim_dur = float(elem[0].get('Duration'))
 
-        n_groups, n_reps, n_shots = [int(s) for s in re.findall(r'\d+', title)]
-
+        n_groups, n_reps, n_shots = [int(s) for s in re.findall(r'\d+', title)] 
+        
         print('numbers of trials:', n_trials,
             '\ninter-group delay:', inter_point_delay,
             '\nnumber of groups:', n_groups,
             '\nnumber of shots:', n_shots,
             '\nnumber of sequence reps:', n_reps,
+            '\nsingle stim duration (ms):', single_stim_dur
             )
 
         self.n_groups = n_groups
         self.n_reps = n_reps
         self.n_shots = n_shots
         self.inter_point_delay = inter_point_delay
+        self.single_stim_dur = single_stim_dur
 
         
     def _parseNAPARMgpl(self):
@@ -467,16 +475,16 @@ class interarealAnalysis():
 
         for elem in root:
             if elem.get('Duration'):
-                single_stim_dur = float(elem.get('Duration'))
+#                 single_stim_dur = float(elem.get('Duration'))
                 spiral_size = float(elem.get('SpiralSize'))
                 spiral_size = (spiral_size + 0.005155) / 0.005269
                 break
         
-        print('single stim duration (ms):', single_stim_dur,
-            '\nspiral size (um):', int(spiral_size))
+#         print('single stim duration (ms):', single_stim_dur,
+        print('\nspiral size (um):', int(spiral_size))
 
         self.spiral_size = int(spiral_size)
-        self.single_stim_dur = single_stim_dur
+#         self.single_stim_dur = single_stim_dur
 
         
     def paqProcessing(self):
