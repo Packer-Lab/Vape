@@ -41,6 +41,11 @@ class interarealPlotting():
         self.stim_type = []
         self.tiff_path = []
         self.fps = []
+        self.frame_x = []
+        self.frame_y = []
+        self.pix_sz_x = []
+        self.pix_sz_y = []
+        self.n_trials = []
         self.n_units = []
         self.cell_id = []
         self.cell_med = []
@@ -53,6 +58,7 @@ class interarealPlotting():
         self.pre_frames = []
         self.post_frames = []
         self.duration_frames = []
+        self.test_frames = []
         self.time = []
         self.all_trials = []
         self.stas = []
@@ -69,8 +75,13 @@ class interarealPlotting():
         self.target_coords = []
         self.n_targets = []
         self.n_targeted_cells = []
+        self.n_groups = []
+        self.spiral_size = []
+        self.n_shots = []
+        self.single_stim_dur = []
+        self.n_reps = []
         self.trial_target_dff = []
-        self.trial_w_targets = []
+#         self.trial_w_targets = []
         self.trial_euclid_dist = []
         self.sta_euclid_dist = []
         
@@ -98,9 +109,15 @@ class interarealPlotting():
         # Attributes (things I won't use to index)
         self.tiff_path.append(os.path.split(exp_obj.tiff_path)[1])
         self.fps.append(exp_obj.fps)
+        self.frame_x.append(exp_obj.frame_x)
+        self.frame_y.append(exp_obj.frame_y)
+        self.pix_sz_x.append(exp_obj.pix_sz_x)
+        self.pix_sz_y.append(exp_obj.pix_sz_y)
+        self.n_trials.append(exp_obj.n_trials)
         self.pre_frames.append(exp_obj.pre_frames)
         self.post_frames.append(exp_obj.post_frames)
         self.duration_frames.append(exp_obj.duration_frames)
+        self.test_frames.append(exp_obj.test_frames)
         self.stim_dur.append(exp_obj.stim_dur)
         self.stim_freq.append(exp_obj.stim_freq)
         
@@ -120,22 +137,32 @@ class interarealPlotting():
     
     def _parsePhotostimMetadata(self, exp_obj):
         
-        if any(s in exp_obj.stim_type for s in ['pr', 'ps', 'none']):
+        if any(s in exp_obj.stim_type for s in ['pr', 'ps']):
             self.targeted_cells.append(exp_obj.targeted_cells)
             self.target_coords.append(exp_obj.target_coords)
+            self.n_groups.append(exp_obj.n_groups)
             self.n_targets.append(exp_obj.n_targets)
             self.n_targeted_cells.append(exp_obj.n_targeted_cells)
+            self.spiral_size.append(exp_obj.spiral_size)
+            self.n_shots.append(exp_obj.n_shots)
+            self.single_stim_dur.append(exp_obj.single_stim_dur)
+            self.n_reps.append(exp_obj.n_reps)
             self.trial_target_dff.append(exp_obj.trial_target_dff)
-            self.trial_w_targets.append(exp_obj.trial_w_targets)
+#             self.trial_w_targets.append(exp_obj.trial_w_targets)
             self.trial_euclid_dist.append(exp_obj.trial_euclid_dist)
             self.sta_euclid_dist.append(exp_obj.sta_euclid_dist)
         else:
             self.targeted_cells.append(False)
             self.target_coords.append(False)
+            self.n_groups.append(False)
             self.n_targets.append(False)
             self.n_targeted_cells.append(False)
+            self.spiral_size.append(False)
+            self.n_shots.append(False)
+            self.single_stim_dur.append(False)
+            self.n_reps.append(False)
             self.trial_target_dff.append(False)
-            self.trial_w_targets.append(False)
+#             self.trial_w_targets.append(False)
             self.trial_euclid_dist.append(False)
             self.sta_euclid_dist.append(False)
 
@@ -144,7 +171,6 @@ class interarealPlotting():
 
         for pkl_file in self.new_pkls:
             print('Collecting analysed data for pickled object:', pkl_file, '          ', end='\r')
-            whisker_cells = False
             
             basename = os.path.basename(pkl_file)
             self.pkl_name.append(basename)
@@ -159,7 +185,6 @@ class interarealPlotting():
                 
             if ses_obj.whisker_stim.n_frames > 0:
                 exp_list.append(ses_obj.whisker_stim)
-                whisker_cells = np.where(ses_obj.whisker_stim.sta_sig[0]) # find the number of whisker responsive cells targeted on each trial
 
             for exp_obj in exp_list:
                 

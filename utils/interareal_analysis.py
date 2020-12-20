@@ -13,11 +13,11 @@ import copy
 import re
 import pickle
 import ntpath
-import csv
 import bisect
 
 from random import randint
 from scipy import stats, signal
+import statsmodels.stats as smstats
 
 from utils.gsheets_importer import gsheet2df, split_df, path_conversion, path_finder
 from utils.paq2py import *
@@ -226,19 +226,25 @@ class interarealProcessing():
         
     def addShamPhotostim(self):
         
-        self.spont.stim_start_frames = self.photostim_r.stim_start_frames
-        self.spont.naparm_path = self.photostim_r.naparm_path
-        self.spont.spiral_size = self.photostim_r.spiral_size 
-        self.spont.duration_frames = self.photostim_r.duration_frames
-        self.spont.stim_dur = self.photostim_r.stim_dur
-        self.spont.stim_freq = self.photostim_r.stim_freq
-        self.spont.single_stim_dur = self.photostim_r.single_stim_dur
-        self.spont.n_shots = self.photostim_r.n_shots
-        self.spont.n_groups = self.photostim_r.n_groups
-        self.spont.n_trials = self.photostim_r.n_trials
-        self.spont.inter_point_delay = self.photostim_r.inter_point_delay
-        self.spont.targeted_cells = self.photostim_r.targeted_cells
-        self.spont.n_targets = self.photostim_r.n_targets
+        if self.spont.naparm_path == 'none':
+            self.spont.stim_start_frames = self.photostim_r.stim_start_frames
+            self.spont.naparm_path = self.photostim_r.naparm_path
+            self.spont.spiral_size = self.photostim_r.spiral_size 
+            self.spont.duration_frames = self.photostim_r.duration_frames
+            self.spont.stim_dur = self.photostim_r.stim_dur
+            self.spont.stim_freq = self.photostim_r.stim_freq
+            self.spont.single_stim_dur = self.photostim_r.single_stim_dur
+            self.spont.n_shots = self.photostim_r.n_shots
+            self.spont.n_groups = self.photostim_r.n_groups
+            self.spont.n_trials = self.photostim_r.n_trials
+            self.spont.inter_point_delay = self.photostim_r.inter_point_delay
+            self.spont.targeted_cells = self.photostim_r.targeted_cells
+            self.spont.n_targets = self.photostim_r.n_targets
+        else: 
+            self.spont.photostimProcessing()
+            self.spont.n_trials = self.photostim_r.n_trials 
+            self.spont.targeted_cells = self.photostim_r.targeted_cells
+            self.spont.n_targets = self.photostim_r.n_targets
 
         
     def _targetedWhiskerCells(self, exp_obj):
@@ -440,20 +446,23 @@ class interarealAnalysis():
         for elem in root:
             if int(elem[0].get('InitialDelay')) > 0:
                 inter_point_delay = int(elem[0].get('InitialDelay'))
+                single_stim_dur = float(elem[0].get('Duration'))
 
-        n_groups, n_reps, n_shots = [int(s) for s in re.findall(r'\d+', title)]
-
+        n_groups, n_reps, n_shots = [int(s) for s in re.findall(r'\d+', title)] 
+        
         print('numbers of trials:', n_trials,
             '\ninter-group delay:', inter_point_delay,
             '\nnumber of groups:', n_groups,
             '\nnumber of shots:', n_shots,
             '\nnumber of sequence reps:', n_reps,
+            '\nsingle stim duration (ms):', single_stim_dur
             )
 
         self.n_groups = n_groups
         self.n_reps = n_reps
         self.n_shots = n_shots
         self.inter_point_delay = inter_point_delay
+        self.single_stim_dur = single_stim_dur
 
         
     def _parseNAPARMgpl(self):
@@ -466,16 +475,16 @@ class interarealAnalysis():
 
         for elem in root:
             if elem.get('Duration'):
-                single_stim_dur = float(elem.get('Duration'))
+#                 single_stim_dur = float(elem.get('Duration'))
                 spiral_size = float(elem.get('SpiralSize'))
                 spiral_size = (spiral_size + 0.005155) / 0.005269
                 break
         
-        print('single stim duration (ms):', single_stim_dur,
-            '\nspiral size (um):', int(spiral_size))
+#         print('single stim duration (ms):', single_stim_dur,
+        print('\nspiral size (um):', int(spiral_size))
 
         self.spiral_size = int(spiral_size)
-        self.single_stim_dur = single_stim_dur
+#         self.single_stim_dur = single_stim_dur
 
         
     def paqProcessing(self):
@@ -613,6 +622,7 @@ class interarealAnalysis():
         self.raw = []
         self.dfof = []
         self.mean_img = []
+        self.mean_imgE = []
 
         for plane in range(self.n_planes):
                 
@@ -658,7 +668,7 @@ class interarealAnalysis():
             self.cell_plane.append(cell_plane)
     
     
-    def _detrendFluTrial(self, flu_trial):
+    def _detrendFluTrial(self, flu_trial, stim_end):
         
         flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
         flu_trial = signal.detrend(flu_trial, axis=1, overwrite_data=True)
@@ -684,7 +694,7 @@ class interarealAnalysis():
                 
                 if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                     # detrend only the flu_trial outside of stim artifact
-                    flu_trial = self._detrendFluTrial(flu_trial)
+                    flu_trial = self._detrendFluTrial(flu_trial, stim_end)
                     
                 # baseline flu_trial to first 2 seconds
                 baseline_flu = np.mean(flu_trial[:, :self.pre_frames], axis=1)
@@ -717,8 +727,14 @@ class interarealAnalysis():
         self.all_amplitudes.append(all_amplitudes)
         
         # significance test, [cell (p-value)]
-        t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
-        self.t_tests.append(t_tests[1][:])
+#         t_tests = stats.ttest_rel(pre_array, post_array, axis=1)
+#         self.t_tests.append(t_tests[1][:])
+        wilcoxons = np.empty(self.n_units[0])
+
+        for cell in range(self.n_units[0]):
+            wilcoxons[cell] = stats.wilcoxon(post_array[cell], pre_array[cell])[1]
+
+        self.wilcoxons.append(wilcoxons)
         
         return trial_array 
     
@@ -764,13 +780,18 @@ class interarealAnalysis():
         
         
     def _sigTestAvgDFF(self, plane):
-  
-        p_vals = self.t_tests[plane]
 
-        bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05 / self.n_units[plane]]
-        sig_units = np.zeros(self.n_units[plane], dtype='bool')
-        sig_units[bonf_corr] = True
+#         p_vals = self.t_tests[plane]
 
+#         bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05 / self.n_units[plane]]
+#         sig_units = np.zeros(self.n_units[plane], dtype='bool')
+#         sig_units[bonf_corr] = True
+
+        p_vals = self.wilcoxons[plane]
+        
+        sig_units, _, _, _ = smstats.multitest.multipletests(p_vals, alpha=0.1, method='fdr_bh', 
+                                                             is_sorted=False, returnsorted=False)
+        
         no_bonf_corr = [i for i,p in enumerate(p_vals) if p < 0.05]
         nomulti_sig_units = np.zeros(self.n_units[plane], dtype='bool')
         nomulti_sig_units[no_bonf_corr] = True
@@ -872,7 +893,7 @@ class interarealAnalysis():
 
         target_areas = []
 
-        radius = ( (self.spiral_size / 2) + 10) / self.pix_sz_x # adding 10 um to account for photostim res
+        radius = int(((self.spiral_size/2)+10)/self.pix_sz_x) # adding 10 um for photostim res
         for coord in targ_coords:
             target_area = np.array([item for item in points_in_circle_np(radius, x0=coord[0], y0=coord[1])])
             if not any([max(target_area[:,1]) > frame_x,
@@ -931,6 +952,7 @@ class interarealAnalysis():
     
     def _euclidDist(self, resp_positions):
         
+        # mean distance of targets from centroid
         resp_coords = list(zip(*resp_positions))
         centroidx = np.mean(resp_coords[0])
         centroidy = np.mean(resp_coords[1])
@@ -1025,6 +1047,7 @@ class interarealAnalysis():
                 
                 self.prob_response = [] # proportion of trials responding on
                 self.t_tests = [] # result from related samples t-test between dff test periods
+                self.wilcoxons = []
                 self.trial_sig_dff = [] # based on dff increase above std of baseline
                 self.trial_sig_dfsf = [] # based on df/std(f) increase in test period post-stim
                 self.sta_sig = [] # based on t-test between dff test periods
