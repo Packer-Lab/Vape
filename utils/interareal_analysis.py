@@ -180,7 +180,7 @@ class interarealProcessing():
             'data_path' : data_folders, 
             'fs' : float(sampling_rate),
             'diameter' : diameter, 
-            'nplanes' : n_planes
+            'nplanes' : n_planes,
             }
 
         print('\ns2p ops:', db)
