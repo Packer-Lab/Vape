@@ -3,8 +3,8 @@ import os
 
 
 ops = {
-        'batch_size': 200, # reduce if running out of RAM
-        'fast_disk': os.path.expanduser('~/Documents/suite2p_binaries'), # used to store temporary binary file, defaults to save_path0 (set as a string NOT a list)
+        'batch_size': 2500, # reduce if running out of RAM
+        'fast_disk': os.path.expanduser('/mnt/sandbox/jrowland/suite2p_binaries'), # used to store temporary binary file, defaults to save_path0 (set as a string NOT a list)
         #'save_path0': '/media/jamesrowland/DATA/plab/suite_2p', # stores results, defaults to first item in data_path
         'delete_bin': False, # whether to delete binary file after processing
         # main settings
@@ -15,7 +15,7 @@ ops = {
         'tau':  1.26, # this is the main parameter for deconvolution
         'fs': 30.,  # sampling rate (total across planes)
         # output settings
-        'save_mat': True, # whether to save output as matlab files
+        'save_mat': False, # whether to save output as matlab files
         'combined': True, # combine multiple planes into a single result /single canvas for GUI
         # parallel settings
         'num_workers': 0, # 0 to select num_cores, -1 to disable parallelism, N to enforce value
