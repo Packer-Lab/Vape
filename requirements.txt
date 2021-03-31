@@ -445,7 +445,7 @@ grpc-google-pubsub-v1 == 0.11.1
 gtfs-realtime-bindings == 0.0.6
 
 # Vape/utils/parse_markpoints.py: 1,2
-lxml == 4.4.1
+lxml == 4.6.3
 
 # Vape/jupyter/archive/basic_sta_suite2p.ipynb: 5
 # Vape/jupyter/archive/basic_sta_suite2p_targeted_cells.ipynb: 6
