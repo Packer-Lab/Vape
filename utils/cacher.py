@@ -176,6 +176,14 @@ def preprocess_flu(run):
     run.spks = spks
     run.stat = stat
 
+    # Add in stuff from the monkey patcher notebook
+    gt = rf.GetTargets(run)
+    run.is_target = gt.is_target
+
+    run = rf.spiral_tstart(run)
+    run.spiral_licks = rf.get_binned_licks(run, run.aligner.B_to_A(run.spiral_start))
+    run.autorewarded_trial = rf.autoreward(run) 
+
     return run
 
 def build_frames_ms(run, cell_plane, paqio_frames, aligner):
