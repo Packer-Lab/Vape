@@ -269,11 +269,12 @@ class OptoStim2p(OptoStimBasic):
         self.alltrials_barcodes = [re.search('(?<=Barcode )(.*)', line).group(0)
                                    for line in _alltrials_trigger_lines]
 
-        assert len(self.slm_barcode) == self.trial_type.count('go')
+        assert len(self.slm_barcode) == self.trial_type.count('go'),\
+                  '{} {}'.format(len(self.slm_barcode), self.trial_type.count('go'))
         # necessary to analyse sessions without nogo blimping
         if len(self.nogo_barcode) > 0:
             assert len(self.nogo_barcode) == self.trial_type.count('nogo'),\
-                  '{} {}'.format(self.nogo_barcode, self.trial_type.count('nogo'))
+                  '{} {}'.format(len(self.nogo_barcode), self.trial_type.count('nogo'))
 
         self.rsync = self.session.times.get('rsync')
         # go_start = self.session.times.get('SLM_state')
@@ -290,7 +291,8 @@ class BlimpImport(OptoStim2p):
 
     #from the URL
     sheet_IDs = ['1GG5Y0yCEw_h5dMfHBnBRTh5NXgF6NqC_VVGfSpCHroc',
-                 '1nFdqJv1aZk36CrBpRZPjRuOTHUKX8SXuVW9pa89OIHY']
+                 '1nFdqJv1aZk36CrBpRZPjRuOTHUKX8SXuVW9pa89OIHY',
+                 '1Cnt8-e7rGFMlvkRwkiT2BlWC4Ll6uvC9iO3dVugyMbM']
 
     server_path = os.path.expanduser('~/mnt/qnap/Data')
 

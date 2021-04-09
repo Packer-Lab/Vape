@@ -162,17 +162,27 @@ def preprocess_flu(run):
     except KeyError:
         cell_plane = np.zeros(len(stat))
 
-    run.frames_ms = build_frames_ms(run, cell_plane, paqio_frames, 
-                                    aligner=run.aligner)
+    ##### Don't think we need this anymoree
 
-    run.frames_ms_pre = build_frames_ms(run, cell_plane, 
-                                        paqio_frames, aligner =
-                                        run.prereward_aligner)
+    # run.frames_ms = build_frames_ms(run, cell_plane, paqio_frames, 
+                                    # aligner=run.aligner)
+
+    # run.frames_ms_pre = build_frames_ms(run, cell_plane, 
+                                        # paqio_frames, aligner =
+                                        # run.prereward_aligner)
 
     # add to the run object
     run.flu = flu
     run.spks = spks
     run.stat = stat
+
+    # Add in stuff from the monkey patcher notebook
+    gt = rf.GetTargets(run)
+    run.is_target = gt.is_target
+
+    run = rf.spiral_tstart(run)
+    run.spiral_licks = rf.get_binned_licks(run, run.aligner.B_to_A(run.spiral_start))
+    run.autorewarded_trial = rf.autoreward(run) 
 
     return run
 
@@ -321,6 +331,8 @@ def main(mouse_id, run_number, pkl_path,
     # TEMPORARRY??
     run.s2p_path = os.path.join(Path(db['data_path'][0]),
                                 'suite2p')
+    # 2021 addition, think this is correct
+    run.s2p_path = save_folder
 
 
 #    # check that suite2p hasn't alreay been run

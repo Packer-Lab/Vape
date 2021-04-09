@@ -588,7 +588,7 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames=10,
 
 
 def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
-                    use_spks=False, is_prereward=False):
+                    use_spks=False, use_comps=False, is_prereward=False):
 
     ''' converts [n_cells x n_frames] matrix to trial by trial array
         [n_cells x n_trials x pre_frames+post_frames]
@@ -609,6 +609,8 @@ def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
 
     if use_spks:
         flu = run.spks
+    elif use_comps:
+        flu = run.comps
     else:
         flu = run.flu
 
