@@ -671,7 +671,11 @@ class GetTargets():
 
             if self.single_plane:
                 # I think you just need to rescale x in the obfov condition. Be careful and check though
-                scale_y = 1
+                # scale_y = 1
+                # scale_y = lambda y: (y * 1024 - (514/2)) / 514
+                scale_y = lambda y: y*2 - 256
+
+                # scale_y = lambda y: y
             else:
                 # I have rescaled by just multiplying coordinates by 2, go careful with this as not 
                 # 100% sure it is correct
@@ -679,7 +683,9 @@ class GetTargets():
                 
             scale_x = 2
             
-            mask = cv2.circle(mask, (int(scale_x*x), int(scale_y*y)) , radius=int(self.radius_px), color=1, thickness=-1)
+            # mask = cv2.circle(mask, (int(scale_x*x), int(scale_y*y)) , radius=int(self.radius_px), color=1, thickness=-1)
+            mask = cv2.circle(mask, (int(scale_x*x), int(scale_y(y))), 
+                              radius=int(self.radius_px), color=1, thickness=-1)
 
         return mask.astype('bool')
 
