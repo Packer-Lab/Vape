@@ -228,10 +228,10 @@ class OptoStim1p(OptoStimBasic):
             # go_start = self.session.times.get('detect_lick_go')
             # nogo_start = self.session.times.get('detect_lick_nogo')
 
-            go_start = [line.split(' ')[0] for line in self.print_lines
+            go_start = [int(line.split(' ')[0]) for line in self.print_lines
                         if 'goTrial' in line]
 
-            nogo_start = [line.split(' ')[0] for line in self.print_lines
+            nogo_start = [int(line.split(' ')[0]) for line in self.print_lines
                           if 'nogo_trial' in line]
 
             ts = np.sort(np.hstack((go_start, nogo_start)))
@@ -382,7 +382,7 @@ class BlimpImport(OptoStim2p):
 
         obj_list = []
         for date, pyc in zip(dates_1p, pycontrol_1p):
-            umbrella = os.path.join(BlimpImport.server_path, date)
+            umbrella = os.path.join(BlimpImport.server_path, '1-photon-behaviour')
             pycontrol_path = gsheet.path_finder(umbrella, pyc, is_folder=False)
             obj = OptoStim1p(pycontrol_path[0])
             obj_list.append(obj)
