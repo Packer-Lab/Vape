@@ -1000,3 +1000,41 @@ def fillList(list_, var, i_0=0):
     list_[i_0:i_n] = var
            
     return list_
+
+
+def filterDfBoolCol(df, true_cols=[], false_cols=[]):
+    '''Filter indices in a pandas dataframe using logical operations
+    on columns with Boolean values
+    
+    Inputs:
+        df         -- dataframe
+        true_cols  -- columns where True should be filtered
+        false_cols -- columns where False should be filtered
+    
+    Outputs:
+        indices of the dataframe where the logical operation is true
+    '''
+    if true_cols: 
+        true_rows = df[true_cols].all(axis='columns')
+    
+    if false_cols:
+        false_rows = (~df[false_cols]).all(axis='columns')
+    
+    if true_cols and false_cols:
+        filtered_df = df[true_rows & false_rows]
+    elif true_cols:
+        filtered_df = df[true_rows]
+    elif false_cols:
+        filtered_df = df[false_rows]
+    
+    return filtered_df.index
+
+
+def savePlot(save_path):
+    '''Save both .png and .svg from a matplotlib plot
+    
+    Inputs:
+        save_path -- path to save plots to
+    '''
+    plt.savefig(save_path + '.png', bbox_inches='tight')
+    plt.savefig(save_path + '.svg', bbox_inches='tight')
