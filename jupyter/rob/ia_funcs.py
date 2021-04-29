@@ -39,12 +39,12 @@ def points_in_circle_np(radius, x0=0, y0=0, ):
     
     Inputs:
         radius -- radius of circle
-        x0 -- x coord of circle centre
-        y0 -- y coord of circle centre
+        x0     -- x coord of circle centre
+        y0     -- y coord of circle centre
         
     Yields:
-        x -- x coord of point n in circle
-        y -- y coord of point n in circle
+        x      -- x coord of point n in circle
+        y      -- y coord of point n in circle
     '''
     
     x_ = np.arange(x0 - radius - 1, x0 + radius + 1, dtype=int)
@@ -61,7 +61,7 @@ def staMovie(output_dir, pkl_list=False):
     
     Inputs:
         output_dir -- directory to save movie to
-        pkl_list -- list of pickled objects to obtain metadata for STA movie
+        pkl_list   -- list of pickled objects to obtain metadata for STA movie
     '''
     
     plane = 0
@@ -189,7 +189,7 @@ def frameFluTime(data_folder, legend=False):
     
     Inputs:
         data_folder -- directory containing tiff stacks
-        legend -- boolean indicating whether to plot the legend
+        legend      -- boolean indicating whether to plot the legend
     '''
         
         
@@ -223,7 +223,7 @@ def downsampleTiff(pkl_list, save_path):
     '''Saves the mean of the entire first and last 1000 frames of timeseries
     
     Inputs:
-        pkl_list -- list of pickled objects to take metadata from
+        pkl_list  -- list of pickled objects to take metadata from
         save_path -- directory to save mean start/end frames in
     '''
         
@@ -320,7 +320,7 @@ def getTargetImage(obj):
     '''Return image of SLM targets
     
     Inputs:
-        obj -- pickled object containing SLM target areas attribute
+        obj      -- pickled object containing SLM target areas attribute
         
     Returns:
         targ_img -- 2D uint16 array with SLM target areas filled with 255
@@ -341,9 +341,9 @@ def s2pMaskStack(pkl_list, stam_save_path, parent_folder):
     Also saves stimulus-triggered average images to compare to masks
     
     Inputs:
-        pkl_list -- list of pickled objects to construct mask images from
+        pkl_list       -- list of pickled objects to construct mask images from
         stam_save_path -- directory containing stimulus-triggered average images/movies
-        parent_folder -- directory to save cell mask images to
+        parent_folder  -- directory to save cell mask images to
     '''
     
     for pkl in pkl_list:
@@ -430,7 +430,7 @@ def combineIscell(s2p_path, extra_iscell_path):
     '''Combine and save iscell.npy files from Suite2p
     
     Inputs:
-        s2p_path -- directory with outputs from Suite2p ('save_path0')
+        s2p_path          -- directory with outputs from Suite2p ('save_path0')
         extra_iscell_path -- iscell file to be combined with Suite2p output
     '''
     
@@ -458,8 +458,8 @@ def topCells(values, cell_ids, amount):
     '''Return top cells based on values
     
     Inputs:
-        values -- 1D float array of values to choose top from
-        cell_ids -- 1D int array of cell indices to consider
+        values       -- 1D float array of values to choose top from
+        cell_ids     -- 1D int array of cell indices to consider
         
     Returns:
         top_cell_ids -- 1D int array of cell indexes
@@ -479,8 +479,8 @@ def bottomCells(values, cell_ids, amount):
     '''Return bottom cells based on values
     
     Inputs:
-        values -- 1D float array of values to choose bottom from
-        cell_ids -- 1D int array of cell indices to consider
+        values       -- 1D float array of values to choose bottom from
+        cell_ids     -- 1D int array of cell indices to consider
         
     Returns:
         top_cell_ids -- 1D int array of cell indexes
@@ -500,10 +500,10 @@ def plotCellSTAs(obj, cell_ids, fig_save_path, save=False):
     '''Plot and save stimulus-triggered average calcium traces (dFF)
     
     Inputs:
-        obj -- pickled object containing calcium traces and metadata
-        cell_ids -- 1D array indices of cells to plot calcium traces for
+        obj           -- pickled object containing calcium traces and metadata
+        cell_ids      -- 1D array indices of cells to plot calcium traces for
         fig_save_path -- directory to save figures to
-        save -- boolean whether to save the figures or not
+        save          -- boolean whether to save the figures or not
     '''
     
     # STA calcium traces
@@ -539,11 +539,11 @@ def plotCellMasks(obj, top_ten_cell_ids, stam_save_path, fig_save_path, save=Fal
     and mean calcium images (postage stamps)
     
     Inputs:
-        obj -- pickled object containing metadata to plot
+        obj              -- pickled object containing metadata to plot
         top_ten_cell_ids -- 1D array of ten cell indices to plot
-        stam_save_path -- directory containing stimulus-triggered average images
-        fig_save_path -- directory to save figures to
-        save -- boolean whether to save the figures or not
+        stam_save_path   -- directory containing stimulus-triggered average images
+        fig_save_path    -- directory to save figures to
+        save             -- boolean whether to save the figures or not
     '''
     
     tiff_name = obj.tiff_path.split('/')[-1]
@@ -606,10 +606,10 @@ def plotColour(trial_type):
     '''Function for choosing plotting colour based on trial type
     
     Inputs:
-        trial_type -- string indicating the trial type
+        trial_type   -- string indicating the trial type
         
     Returns:
-        trial_colour -- 
+        trial_colour -- plotting colour for this trial type
     '''
     
     trial_types = np.array(['pr', 'ps', 'w', 'none'])
@@ -623,10 +623,10 @@ def plotCellPositions(obj, cell_ids, fig_save_path, save=False):
     '''Plot and save positions of cells in image coordinate system
     
     Inputs:
-        obj -- pickled object containing metadata to plot
-        cell_ids -- 1D int array of cell indices to plot
+        obj           -- pickled object containing metadata to plot
+        cell_ids      -- 1D int array of cell indices to plot
         fig_save_path -- directory to save figures to
-        save -- boolean whether to save the figures or not
+        save          -- boolean whether to save the figures or not
     '''
     
     # Cell coords (y,x)
@@ -670,7 +670,7 @@ def responseFreqTrial(trial_bool, cells_bool):
         
     Returns:
         trial_responses -- 1D array of % of trials each cell responded on
-        trial_bins -- 1D array of range 1:n(trials)
+        trial_bins      -- 1D array of range 1:n(trials)
     '''
     
     trial_bool = trial_bool[cells_bool, :]
@@ -685,10 +685,10 @@ def plotResponseFreqTrial(obj, trial_bool, cells_bool, ax):
     '''Plot the percentage of cells responding on each trial
     
     Inputs:
-        obj -- pickled object containing metadata
+        obj        -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
-        ax -- axis object on which to plot
+        ax         -- axis object on which to plot
     '''
     
     trial_responses, trial_bins = responseFreqTrial(trial_bool, cells_bool)
@@ -708,10 +708,10 @@ def plotResponseFreqCell(obj, trial_bool, cells_bool, ax):
     '''Plot the percentage of trials each cell showed a response
     
     Inputs:
-        obj -- pickled object containing metadata
+        obj        -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
-        ax -- axis object on which to plot
+        ax         -- axis object on which to plot
     '''
     
     trial_bool = trial_bool[cells_bool, :]
@@ -741,10 +741,10 @@ def plotCellResponseRaster(obj, trial_bool, cells_bool, ax):
     '''Plot a raster of trial responses [trial x cell]
     
     Inputs:
-        obj -- pickled object containing metadata
+        obj        -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
-        ax -- axis object on which to plot [2 x 2]
+        ax         -- axis object on which to plot [2 x 2]
     '''
     
     trial_responses, trial_bins = responseFreqTrial(trial_bool, cells_bool)
@@ -791,10 +791,10 @@ def responseAmpTrial(obj, trial_bool, cells_bool):
     '''Plot the percentage of cells responding on each trial
     
     Inputs:
-        obj -- pickled object containing metadata
+        obj        -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
-        ax -- axis object on which to plot
+        ax         -- axis object on which to plot
         
     Returns: 
         trial_amp_means -- mean of all cell dFF changes per trial
@@ -814,10 +814,10 @@ def plotResponseAmpTrial(obj, trial_bool, cells_bool, ax):
     '''Plot the percentage of cells responding on each trial
     
     Inputs:
-        obj -- pickled object containing metadata
+        obj        -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
-        ax -- axis object on which to plot
+        ax         -- axis object on which to plot
     '''
 
     trial_amp_means = responseAmpTrial(obj, trial_bool, cells_bool)
@@ -836,10 +836,10 @@ def responseAmpSumTrial(obj, trial_bool, cells_bool):
     '''Plot the percentage of cells responding on each trial
     
     Inputs:
-        obj -- pickled object containing metadata
+        obj        -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
-        ax -- axis object on which to plot
+        ax         -- axis object on which to plot
         
     Returns:
         trial_amp_sum -- sum of all dFF changes per trial
@@ -859,10 +859,10 @@ def plotResponseAmpSumTrial(obj, trial_bool, cells_bool, ax):
     '''Plot the percentage of cells responding on each trial
     
     Inputs:
-        obj -- pickled object containing metadata
+        obj        -- pickled object containing metadata
         trial_bool -- 2D boolean array whether cell responded on trial [cell x trial]
         cells_bool -- 1D boolean array of cells of interest
-        ax -- axis object on which to plot
+        ax         -- axis object on which to plot
     '''
     
     trial_amp_sum = responseAmpSumTrial(obj, trial_bool, cells_bool)
@@ -874,3 +874,167 @@ def plotResponseAmpSumTrial(obj, trial_bool, cells_bool, ax):
     ax.set_ylabel('Summed change in dFF')
     ax.set_title(obj.sheet_name + ' mean summed change in dFF per trial')
     ax.legend(loc='upper right')  
+
+    
+def listdirFullpath(directory, string=''):
+    '''Return full path of all files in directory containing specified string
+    
+    Inputs:
+        directory -- path to directory (string)
+        string    -- sequence to be found in file name (string)
+    '''
+    return [os.path.join(directory, file) \
+                for file in os.listdir(directory) \
+                    if string in file]
+
+
+def loadPickle(pickle_path):
+    '''Load the pickled object
+    
+    Inputs:
+        pickle_path -- path to pickled object
+    '''
+    
+    print('Loading pickle:', pickle_path)
+
+    with open(pickle_path, 'rb') as f:
+        obj = pickle.load(f)
+    
+    return obj
+
+
+def makeExpList(ses_obj, stim_types):
+    '''Construct experiment list from experiments in
+    object
+    
+    Inputs:
+        ses_obj -- session object created using interareal_analysis.py
+    '''
+    
+    exp_list = []
+    
+    if ses_obj.photostim_r.n_frames > 0 and 'pr' in stim_types: 
+        exp_list.append(ses_obj.photostim_r)
+    if ses_obj.photostim_s.n_frames > 0 and 'ps' in stim_types: 
+        exp_list.append(ses_obj.photostim_s)
+    if ses_obj.spont.n_frames > 0 and 'none' in stim_types: 
+        exp_list.append(ses_obj.spont)            
+    if ses_obj.whisker_stim.n_frames > 0 and 'w' in stim_types: 
+        exp_list.append(ses_obj.whisker_stim)
+        
+    return exp_list
+    
+    
+def getMaxTrialLength(ses_obj_list):
+    '''Find the maximum trial length for this series of experiments
+    
+    Inputs:
+        obj_list     -- list of session objects made using interareal_analysis.py
+        
+    Outputs:
+        trial_len_max -- maximum trial length from all stim types
+    '''
+    trial_len_max = 0
+    
+    for trial_type in ses_obj_list:
+        trial_len = len(trial_type.time)
+        
+        if trial_len > trial_len_max:
+            trial_len_max = trial_len
+            
+    return trial_len_max
+
+
+def getResponderIdentities(exp_obj, sign_filter, sig='fdr'):
+    '''Get the number of responding cells according to statistical
+    threshold for targets, s1 non-target and s2
+    
+    Inputs:
+        obj           -- experiment object created using interareal_analysis.py
+        sign_filter   -- whether the amplitude of response for each 
+                         cell matches the filter (bool)
+        sig           -- the method of calculating significant responders
+    Ouput:
+        []            -- list of whether cells responded or not
+    '''
+    if sig=='fdr': sig_filter = exp_obj.sta_sig[0]
+    if sig=='nomulti': sig_filter = exp_obj.sta_sig_nomulti[0]
+    if sig=='insig-fdr': sig_filter = ~exp_obj.sta_sig[0]
+    if sig=='insig-nomulti': sig_filter = ~exp_obj.sta_sig_nomulti[0]
+        
+    s1_target_responders = exp_obj.targeted_cells & sig_filter
+    s1_nontarget_responders = exp_obj.cell_s1[0] & ~exp_obj.targeted_cells & sig_filter & sign_filter
+    s2_responders = exp_obj.cell_s2[0] & sig_filter & sign_filter
+    
+    return [s1_target_responders, s1_nontarget_responders, s2_responders]
+
+
+def getResponderTrials(exp_obj, responders):
+    '''Get the mean trials for each cell type
+    
+    Inputs:
+        obj        -- object created using interareal_analysis.py
+        responders -- whether cells were responding (list of bools)
+    '''
+    
+    all_trials = exp_obj.all_trials[0]
+    
+    s1_targ_trials = np.nanmean(all_trials[responders[0]], axis=(0,2)) # mean across cell and trial
+    s1_nt_trials = np.nanmean(all_trials[responders[1]], axis=(0,2))
+    s2_trials = np.nanmean(all_trials[responders[2]], axis=(0,2))
+    
+    return [s1_targ_trials, s1_nt_trials, s2_trials]
+
+
+def fillList(list_, var, i_0=0):
+    '''Fill array from the beginning without providing all indices'''
+    
+    if len(np.shape(var)) > 1 or len(np.shape(list_)) > 1:
+        raise Exception('inputs must be lists')
+    
+    i_n = len(var)
+    
+    if i_n+i_0 > len(list_):
+        raise Exception('list is too long to be inserted')
+        
+    list_[i_0:i_n] = var
+           
+    return list_
+
+
+def filterDfBoolCol(df, true_cols=[], false_cols=[]):
+    '''Filter indices in a pandas dataframe using logical operations
+    on columns with Boolean values
+    
+    Inputs:
+        df         -- dataframe
+        true_cols  -- columns where True should be filtered
+        false_cols -- columns where False should be filtered
+    
+    Outputs:
+        indices of the dataframe where the logical operation is true
+    '''
+    if true_cols: 
+        true_rows = df[true_cols].all(axis='columns')
+    
+    if false_cols:
+        false_rows = (~df[false_cols]).all(axis='columns')
+    
+    if true_cols and false_cols:
+        filtered_df = df[true_rows & false_rows]
+    elif true_cols:
+        filtered_df = df[true_rows]
+    elif false_cols:
+        filtered_df = df[false_rows]
+    
+    return filtered_df.index
+
+
+def savePlot(save_path):
+    '''Save both .png and .svg from a matplotlib plot
+    
+    Inputs:
+        save_path -- path to save plots to
+    '''
+    plt.savefig(save_path + '.png', bbox_inches='tight')
+    plt.savefig(save_path + '.svg', bbox_inches='tight')
