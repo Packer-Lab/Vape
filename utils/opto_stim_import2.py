@@ -294,7 +294,7 @@ class BlimpImport(OptoStim2p):
                  '1nFdqJv1aZk36CrBpRZPjRuOTHUKX8SXuVW9pa89OIHY',
                  '1Cnt8-e7rGFMlvkRwkiT2BlWC4Ll6uvC9iO3dVugyMbM']
 
-    server_path = os.path.expanduser('~/mnt/qnap/Data')
+    server_path = '/home/jrowland/mnt/qnap/Data'
 
     # the column headers of the spreadsheet 
     date_header = 'Date'

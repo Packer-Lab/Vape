@@ -394,6 +394,14 @@ def manual_correct(run):
     if len(run.spiral_start) == len(run.trial_start) - 1:
         run.spiral_start = np.append(run.spiral_start, np.nan)
 
+    if len(run.spiral_start) == len(run.trial_start) + 1:
+        print('run.spiral_start is shorter than run.trial_start '
+              'by one. This trims it, go very careful of an off-by-one '
+              'error')
+
+        run.spiral_start = run.spiral_start[:-1]
+
+
     elif run.mouse_id == 'RL072' and run_number==20 and\
     len(run.spiral_start) == len(run.trial_start)+1:
         run.spiral_start = run.spiral_start[1:]
@@ -428,7 +436,7 @@ def spiral_tstart(run):
     except ValueError:
         print(run.mouse_id)
         print('x_galvo is length {} trial start is length {}'.
-              format(len(run.spiral_start), len(trial_start)))
+              format(len(run.spiral_start), len(run.trial_start)))
         raise
 
     return run
@@ -733,7 +741,7 @@ class GetTargets():
         ''' Converts a packerstation path to a qnap path '''
         
         # Path to qnap data folder
-        qnap_data = os.path.expanduser('~/mnt/qnap/Data')
+        qnap_data = os.path.expanduser('/home/jrowland/mnt/qnap/Data')
         
         # Part of the pstation path that is shared with the qnap path
         # Split with the seperator as path.join doesn't like leading
