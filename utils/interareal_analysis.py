@@ -632,7 +632,7 @@ class interarealAnalysis():
         
         total_stim = total_multi_stim * self.n_reps
         
-        self.stim_dur = total_stim - self.inter_point_delay
+        self.stim_dur = total_stim
         self.stim_freq = (1000 / total_multi_stim) # stim frequency for one cell/group in Hz
 
         self.paqProcessing()
@@ -834,7 +834,7 @@ class interarealAnalysis():
             detrended_flu_trial - detrended dff trial with zeros replacing stim artifact
         '''        
         # remove stim artifact from the trial (truncates the array)
-        no_stim_flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1)
+        no_stim_flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1) # CHANGE THIS TO stim_end + 1?
         
         # detrend and baseline-subtract the flu trial for all cells
         detrended_flu_trial = signal.detrend(no_stim_flu_trial, axis=1)
