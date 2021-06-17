@@ -392,7 +392,9 @@ def manual_correct(run):
         run.spiral_start = run.spiral_start[2:]
 
     if len(run.spiral_start) == len(run.trial_start) - 1:
-        run.spiral_start = np.append(run.spiral_start, np.nan)
+        # run.spiral_start = np.append(run.spiral_start, np.nan)
+        # Go Carful HERE IM NOT 100% SURE
+        run.spiral_start = run.spiral_start[:-1]
 
     elif run.mouse_id == 'RL072' and run_number==20 and\
     len(run.spiral_start) == len(run.trial_start)+1:
@@ -428,7 +430,7 @@ def spiral_tstart(run):
     except ValueError:
         print(run.mouse_id)
         print('x_galvo is length {} trial start is length {}'.
-              format(len(run.spiral_start), len(trial_start)))
+              format(len(run.spiral_start), len(run.trial_start)))
         raise
 
     return run
