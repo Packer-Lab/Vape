@@ -396,6 +396,14 @@ def manual_correct(run):
         # Go Carful HERE IM NOT 100% SURE
         run.spiral_start = run.spiral_start[:-1]
 
+    if len(run.spiral_start) == len(run.trial_start) + 1:
+        print('run.spiral_start is shorter than run.trial_start '
+              'by one. This trims it, go very careful of an off-by-one '
+              'error')
+
+        run.spiral_start = run.spiral_start[:-1]
+
+
     elif run.mouse_id == 'RL072' and run_number==20 and\
     len(run.spiral_start) == len(run.trial_start)+1:
         run.spiral_start = run.spiral_start[1:]
@@ -585,8 +593,6 @@ class GetTargets():
         self.run = run
         um_per_pixel = 1.35  # Correct-ish at 0.8x, check me
         stim_radius = 17.5  #  Distance (um) from stim to be considered target
-        stim_radius = 3  #  Distance (um) from stim to be considered target
-        print('STIM RADIUS FOR TARGET REDUCED FIXED IN FUTURE')
         self.radius_px = stim_radius * um_per_pixel
 
         self.cell_coords = self.get_normalised_coords()
@@ -743,7 +749,7 @@ class GetTargets():
         ''' Converts a packerstation path to a qnap path '''
         
         # Path to qnap data folder
-        qnap_data = os.path.expanduser('~/mnt/qnap/Data')
+        qnap_data = os.path.expanduser('/home/jrowland/mnt/qnap/Data')
         
         # Part of the pstation path that is shared with the qnap path
         # Split with the seperator as path.join doesn't like leading

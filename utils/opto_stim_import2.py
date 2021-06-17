@@ -294,7 +294,7 @@ class BlimpImport(OptoStim2p):
                  '1nFdqJv1aZk36CrBpRZPjRuOTHUKX8SXuVW9pa89OIHY',
                  '1Cnt8-e7rGFMlvkRwkiT2BlWC4Ll6uvC9iO3dVugyMbM']
 
-    server_path = os.path.expanduser('~/mnt/qnap/Data')
+    server_path = '/home/jrowland/mnt/qnap/Data'
 
     # the column headers of the spreadsheet 
     date_header = 'Date'
@@ -431,7 +431,10 @@ class BlimpImport(OptoStim2p):
         self.blimp_path = gsheet.path_finder(umbrella, blimp, is_folder=True)[0]
         # Bit of a hack as often naparm is used from previous days and 
         # so is not in the umbrella
-        naparm_umbrella = os.path.join(BlimpImport.server_path, naparm.split('_')[0])
+        #naparm_umbrella = os.path.join(BlimpImport.server_path, naparm.split('_')[0])
+        # Hack changed so does not rely on underscore. Now assumes that the naparm
+        # folder starts with iso-standard date to match the Data umbrella folder
+        naparm_umbrella = os.path.join(BlimpImport.server_path, naparm[:10])
         self.naparm_path = gsheet.path_finder(naparm_umbrella, naparm, is_folder=True)
         self.pycontrol_path, self.paq_path, self.prereward_path =\
         gsheet.path_finder(umbrella, pycontrol, paq, prereward, is_folder=False)
