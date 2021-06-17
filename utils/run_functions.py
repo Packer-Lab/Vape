@@ -392,7 +392,9 @@ def manual_correct(run):
         run.spiral_start = run.spiral_start[2:]
 
     if len(run.spiral_start) == len(run.trial_start) - 1:
-        run.spiral_start = np.append(run.spiral_start, np.nan)
+        # run.spiral_start = np.append(run.spiral_start, np.nan)
+        # Go Carful HERE IM NOT 100% SURE
+        run.spiral_start = run.spiral_start[:-1]
 
     if len(run.spiral_start) == len(run.trial_start) + 1:
         print('run.spiral_start is shorter than run.trial_start '
