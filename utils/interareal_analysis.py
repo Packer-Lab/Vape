@@ -873,7 +873,8 @@ class interarealAnalysis():
                 # don't detrend whisker stim data
                 if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                     # detrend only the flu_trial outside of stim artifact and baseline
-                    flu_trial = self._detrendFluTrial(flu_trial, stim_end)
+#                     flu_trial = self._detrendFluTrial(flu_trial, stim_end)
+                    flu_trial = self._baselineFluTrial(flu_trial)
                 else:
                     flu_trial = self._baselineFluTrial(flu_trial)
 
