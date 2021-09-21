@@ -236,7 +236,7 @@ class interarealProcessing():
             'tau'       : tau
             }
 
-        print('\ns2p ops:', db)
+        print('\ns2p ops:', db, ops)
 
         run_s2p(ops=ops,db=db)
     
@@ -804,7 +804,7 @@ class interarealAnalysis():
             self.cell_plane.append(cell_plane)
     
     
-    def _baselineFluTrial(self, flu_trial):
+    def _baselineFluTrial(self, flu_trial, stim_end):
         '''
         Subtract baseline from dff trials to normalise across cells
         
@@ -820,6 +820,9 @@ class interarealAnalysis():
         # subtract baseline values for each cell
         baselined_flu_trial = flu_trial - baseline_flu_stack
         
+        # set stim artifact period to 0
+        baselined_flu_trial[:, self.pre_frames:stim_end] = 0
+        
         return baselined_flu_trial
     
     
@@ -833,17 +836,14 @@ class interarealAnalysis():
         Outputs:
             detrended_flu_trial - detrended dff trial with zeros replacing stim artifact
         '''        
-        # remove stim artifact from the trial (truncates the array)
-        no_stim_flu_trial = np.delete(flu_trial, range(self.pre_frames, stim_end), axis=1) # CHANGE THIS TO stim_end + 1?
+        # set stim artifact period to 0
+        flu_trial[:, self.pre_frames:stim_end] = 0
         
         # detrend and baseline-subtract the flu trial for all cells
         detrended_flu_trial = signal.detrend(no_stim_flu_trial, axis=1)
         baselined_flu_trial = self._baselineFluTrial(detrended_flu_trial)
-        
-        # insert zeros in place of stim artifact
-        processed_flu_trial = np.insert(baselined_flu_trial, [self.pre_frames]*self.duration_frames, 0, axis=1)
                 
-        return processed_flu_trial
+        return baselined_flu_trial
     
     
     def _makeFluTrials(self, plane_flu, plane):
@@ -857,7 +857,9 @@ class interarealAnalysis():
             trial_array - detrended, baseline-subtracted trial array [cell x frame x trial]
         '''
         
-        print('finding trials')
+        print('finding trials                                                                ')
+        
+        trial_array = []
         
         for i, stim in enumerate(self.stim_start_frames[plane]):
             # get frame indices of entire trial from pre-stim start to post-stim end
@@ -865,29 +867,27 @@ class interarealAnalysis():
             
             # use trial frames to extract this trial for every cell
             flu_trial = plane_flu[:,trial_frames]
-            
+            flu_trial_len = self.pre_frames + self.post_frames
             stim_end = self.pre_frames + self.duration_frames
             
             # catch timeseries which ended too early
-            if flu_trial.shape[1] > stim_end:
+            if flu_trial.shape[1] == flu_trial_len:
                 # don't detrend whisker stim data
                 if any(s in self.stim_type for s in ['pr', 'ps', 'none']):
                     # detrend only the flu_trial outside of stim artifact and baseline
 #                     flu_trial = self._detrendFluTrial(flu_trial, stim_end)
-                    flu_trial = self._baselineFluTrial(flu_trial)
+                    flu_trial = self._baselineFluTrial(flu_trial, stim_end)
                 else:
-                    flu_trial = self._baselineFluTrial(flu_trial)
-
-            # only append trials of the correct length - will catch corrupt/incomplete data and not include
-            if i == 0:
-                trial_array = flu_trial
-                flu_trial_shape = flu_trial.shape[1]
-            else:
-                if flu_trial.shape[1] == flu_trial_shape:
+                    flu_trial = self._baselineFluTrial(flu_trial, stim_end)
+                
+                # only append trials of the correct length - will catch corrupt/incomplete data and not include
+                if len(trial_array)==0:
+                    trial_array = flu_trial
+                else:
                     trial_array = np.dstack((trial_array, flu_trial))
-                else:
-                    print('**incomplete trial detected and not appended to trial_array**', end='\r')
-                    
+            else:
+                print('**incomplete trial detected and not appended to trial_array**', end='\r')
+                                
         return trial_array
     
     
@@ -1342,7 +1342,7 @@ class interarealAnalysis():
                 self.sta_sig = [] # based on t-test between dff test periods
                 self.sta_sig_nomulti = [] # as above, no multiple comparisons correction
 
-                self.pre_frames = int(np.ceil(self.fps*2)) # pre-stim period to include in trial
+                self.pre_frames = int(np.ceil(self.fps*5)) # pre-stim period to include in trial
                 self.post_frames = int(np.ceil(self.fps*10)) # post-stim period to include in trial
                 self.test_frames = int(np.ceil(self.fps*0.5)) # test period for stats
 

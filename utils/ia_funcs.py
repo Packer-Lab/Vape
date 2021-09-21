@@ -126,55 +126,69 @@ def cellFluTime(pkl_list, trial_types='pr ps w none', cell_type=False):
         pkl_list -- list of pickled objects with cellular raw fluorescence traces
     '''
     
-    fig, ax = plt.subplots(nrows=len(pkl_list), ncols=1, figsize=(10,3*len(pkl_list)), sharex=True)
+    fig, ax = plt.subplots(nrows=len(pkl_list), ncols=1, figsize=(10,3*len(pkl_list)), sharey=True, sharex=True)
 
     for i,pkl in enumerate(pkl_list):
             
-            print('Measuring mean cell fluorescence for:', pkl, '              ', end='\r')
-            
-            with open(pkl, 'rb') as f:
-                ses_obj = pickle.load(f)
-            
-            mean_f = np.array([])
-            
-            if 'pr' in trial_types:
-                if cell_type is 'target':
-                    pr_targ = ses_obj.photostim_r.targeted_cells
-                    pr_mean = np.mean(ses_obj.photostim_r.raw[0][pr_targ], axis=0)
-                else:
-                    pr_mean = np.mean(ses_obj.photostim_r.raw[0], axis=0)
-            
-            if 'ps' in trial_types:
-                if cell_type is 'target':
-                    ps_targ = ses_obj.photostim_s.targeted_cells
-                    ps_mean = np.mean(ses_obj.photostim_s.raw[0][ps_targ], axis=0)
-                else:
-                    ps_mean = np.mean(ses_obj.photostim_s.raw[0], axis=0)
-            
-            mean_f = np.concatenate((pr_mean, ps_mean))
-            
-            if 'w' in trial_types and ses_obj.whisker_stim.n_frames > 0:
-                mean_f = np.concatenate((mean_f, np.mean(ses_obj.whisker_stim.raw[0], axis=0)))
-                                    
-            if 'none' in trial_types and ses_obj.spont.n_frames > 0:
-                mean_f = np.concatenate((mean_f, np.mean(ses_obj.spont.raw[0], axis=0)))
+        print('Measuring mean cell fluorescence for:', pkl, '              ', end='\r')
 
-            count = 0
+        with open(pkl, 'rb') as f:
+            ses_obj = pickle.load(f)
+
+        mean_f = np.array([])
+
+        if 'pr' in trial_types:
             
-            for frames in ses_obj.frame_list:
-                x = range(count,count+frames)
+            ssf_pr = ses_obj.photostim_r.stim_start_frames[0]
+
+            for frame in ssf_pr:
+                frame_slice = slice(frame, frame+ses_obj.photostim_r.duration_frames+1, 1)
+                ses_obj.photostim_r.raw[0][:,frame_slice] = np.nan
+            
+            if cell_type is 'target':
+                pr_targ = ses_obj.photostim_r.targeted_cells
+                pr_mean = np.nanmean(ses_obj.photostim_r.raw[0][pr_targ], axis=0)
+            else:
+                pr_mean = np.nanmean(ses_obj.photostim_r.raw[0], axis=0)
+
+        if 'ps' in trial_types:
+            
+            ssf_ps = ses_obj.photostim_s.stim_start_frames[0]
+            
+            for frame in ssf_ps:
+                frame_slice = slice(frame, frame+ses_obj.photostim_s.duration_frames+1, 1)
+                ses_obj.photostim_s.raw[0][:,frame_slice] = np.nan
                 
-                if max(x) < mean_f.shape[0]:
-                    if len(pkl_list) > 1:
-                        ax[i].plot(x, mean_f[x]);
-                        ax[i].set_title(pkl.split('/')[-1])
-                        ax[i].set_ylabel('mean_raw_f')
-                    else:
-                        ax.plot(x, mean_f[x]);
-                        ax.set_title(pkl.split('/')[-1])
-                        ax.set_ylabel('mean_raw_f')
-                    
-                count += frames
+            if cell_type is 'target':
+                ps_targ = ses_obj.photostim_s.targeted_cells
+                ps_mean = np.nanmean(ses_obj.photostim_s.raw[0][ps_targ], axis=0)
+            else:
+                ps_mean = np.nanmean(ses_obj.photostim_s.raw[0], axis=0)
+
+        mean_f = np.concatenate((pr_mean, ps_mean))
+
+        if 'w' in trial_types and ses_obj.whisker_stim.n_frames > 0:
+            mean_f = np.concatenate((mean_f, np.mean(ses_obj.whisker_stim.raw[0], axis=0)))
+
+        if 'none' in trial_types and ses_obj.spont.n_frames > 0:
+            mean_f = np.concatenate((mean_f, np.mean(ses_obj.spont.raw[0], axis=0)))
+
+        count = 0
+
+        for frames in ses_obj.frame_list:
+            x = range(count,count+frames)
+
+            if max(x) < mean_f.shape[0]:
+                if len(pkl_list) > 1:
+                    ax[i].plot(x, mean_f[x]);
+                    ax[i].set_title(pkl.split('/')[-1])
+                    ax[i].set_ylabel('mean_raw_f')
+                else:
+                    ax.plot(x, mean_f[x]);
+                    ax.set_title(pkl.split('/')[-1])
+                    ax.set_ylabel('mean_raw_f')
+
+            count += frames
 
     plt.xlabel('frames')
     labels = ['ps_random', 'ps_similar', 'whisker_stim', 'spont']
@@ -395,7 +409,7 @@ def s2pMaskStack(pkl_list, stam_save_path, parent_folder):
             if all(s in file for s in ['AvgImage', pr_obj.tiff_path.split('/')[-1]]):
                 pr_sta_img = tf.imread(os.path.join(stam_save_path, file))
                 pr_sta_img = np.expand_dims(pr_sta_img, axis=0)
-            elif all(s in file for s in ['AvgImage', ps_obj.tiff_path.split('/')[-1]]):
+            if all(s in file for s in ['AvgImage', ps_obj.tiff_path.split('/')[-1]]):
                 ps_sta_img = tf.imread(os.path.join(stam_save_path, file))
                 ps_sta_img = np.expand_dims(ps_sta_img, axis=0)
         
