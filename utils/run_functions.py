@@ -591,8 +591,8 @@ class GetTargets():
     def __init__(self, run):
 
         self.run = run
-        um_per_pixel = 1.35  # Correct-ish at 0.8x, check me
-        stim_radius = 17.5  #  Distance (um) from stim to be considered target
+        um_per_pixel = 1.365  # Correct-ish at 0.8x, check me
+        stim_radius = 15  #  Distance (um) from stim to be considered target
         print(f'Stim radius for targets is {stim_radius}')
         self.radius_px = stim_radius * um_per_pixel
 
