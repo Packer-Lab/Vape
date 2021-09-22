@@ -583,6 +583,10 @@ class GetTargets():
         self.run = run
         um_per_pixel = 1.365  # Correct-ish at 0.8x, check me
         stim_radius = 15  #  Distance (um) from stim to be considered target
+<<<<<<< HEAD
+=======
+        print(f'Stim radius for targets is {stim_radius}')
+>>>>>>> 8ca813dc9a621a3a1b2a656cfdbe79b117638db0
         self.radius_px = stim_radius * um_per_pixel
 
         self.cell_coords = self.get_normalised_coords()
