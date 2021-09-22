@@ -625,6 +625,31 @@ def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
 
     return flu_array
 
+# def build_flu_array(run, pre_frames=30, post_frames=80, fs=30):
+#     ''' Build an trial by trial fluoresence array of shape [n_cells x n_frames x n_trials]
+#         pre_frames = number of frames before stim to include in trial
+#         post_frames = number of frames after stim to include in trial
+#         fs = frame rate of imaging
+#         '''
+#     flu = run.flu
+#     # the frames that were actually imaged and the time (samples) that they occured
+#     clock = run.paqio_frames
+#     # the times of trial start in paq samples
+#     trial_start = run.spiral_start
+#     # check that the number of trial starts detected by x galvo thresholding
+#     # matches the number of trials reported by pycontrol
+#     assert len(trial_start) == len(run.trial_start)
+#     for i, start in enumerate(trial_start):
+#         trial_frames = get_trial_frames(clock, start, pre_frames, post_frames)       
+#         if trial_frames is None:
+#             flu_trial = np.full([flu.shape[0], pre_frames+post_frames], np.nan)
+#         else:
+#             flu_trial = flu[:, trial_frames]
+#         if i == 0:
+#             flu_array = flu_trial
+#         else:
+#             flu_array = np.dstack((flu_array, flu_trial))
+#     return flu_array
 
 def averager(array_list, pre_frames=10, post_frames=50, offset=0, 
              trial_filter=None, plot=False, fs=5):
