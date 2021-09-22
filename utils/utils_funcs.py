@@ -8,6 +8,8 @@ import csv
 import math
 import bisect
 import copy
+from scipy import stats
+import scipy.io as spio
 
 # global plotting params
 params = {'legend.fontsize': 'x-large',
@@ -83,7 +85,7 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
                 is_cells = np.load(os.path.join(root, file), 
                                    allow_pickle=True)[:, 0]
                 is_cells = np.ndarray.astype(is_cells, 'bool')
-                print('Loading {} traces labelled as cells'
+                print('loading {} traces labelled as cells'
                       .format(sum(is_cells)))
             elif file == 'spks.npy':
                 spks = np.load(os.path.join(root, file), allow_pickle=True)
@@ -107,7 +109,7 @@ def s2p_loader(s2p_path, subtract_neuropil=True, neuropil_coeff=0.7):
         return all_cells, spks, stat
 
     else:
-        print('Subtracting neuropil with a coefficient of {}'
+        print('subtracting neuropil with a coefficient of {}'
               .format(neuropil_coeff))
         neuropil_corrected = all_cells - neuropil * neuropil_coeff
         return neuropil_corrected, spks, stat
@@ -161,11 +163,6 @@ def threshold_detect(signal, threshold):
     '''lloyd russell'''
     thresh_signal = signal > threshold
     thresh_signal[1:][thresh_signal[:-1] & thresh_signal[1:]] = False
-
-
-    thresh_signal[200:][thresh_signal[:-200] & thresh_signal[200:]] = False
-
-
     times = np.where(thresh_signal)
     return times[0]
 
@@ -278,7 +275,7 @@ def stim_start_frame_mat(stim_times, frames_ms, fs=5, debug_print=False):
 
 
 def stim_start_frame(paq=None, stim_chan_name=None, frame_clock=None,
-                     stim_times=None):
+                     stim_times=None, plane=0, n_planes=1):
     '''Returns the frames from a frame_clock that a stim occured on.
        Either give paq and stim_chan_name as arugments if using 
        unprocessed paq. 
@@ -297,7 +294,9 @@ def stim_start_frame(paq=None, stim_chan_name=None, frame_clock=None,
 
     for stim in stim_times:
         # the sample time of the frame immediately preceeding stim
-        frame = next(frame_clock[i-1] for i, sample in enumerate(frame_clock)
+#         frame = next(frame_clock[i-1] for i, sample in enumerate(frame_clock[plane::n_planes])
+#                      if sample - stim > 0)
+        frame = next(i-1 for i, sample in enumerate(frame_clock[plane::n_planes])
                      if sample - stim > 0)
         frames.append(frame)
 
@@ -565,7 +564,6 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames=10,
 
     for i, stim_time in enumerate(stim_times):
 
-
         stim_frame = closest_frame_before(frame_clock, stim_time)
 
         if stim_frame-pre_frames <= 0 or stim_frame+post_frames+offset \
@@ -590,7 +588,7 @@ def test_responsive(flu, frame_clock, stim_times, pre_frames=10,
 
 
 def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
-                    use_spks=False, is_prereward=False):
+                    use_spks=False, use_comps=False, is_prereward=False):
 
     ''' converts [n_cells x n_frames] matrix to trial by trial array
         [n_cells x n_trials x pre_frames+post_frames]
@@ -611,6 +609,8 @@ def build_flu_array(run, stim_times, pre_frames=10, post_frames=50,
 
     if use_spks:
         flu = run.spks
+    elif use_comps:
+        flu = run.comps
     else:
         flu = run.flu
 
@@ -920,3 +920,49 @@ def points_in_circle_np(radius, x0=0, y0=0, ):
     x, y = np.where((x_[:,np.newaxis] - x0)**2 + (y_ - y0)**2 <= radius**2)
     for x, y in zip(x_[x], y_[y]):
         yield x, y
+
+
+
+
+class LoadMat():
+    def __init__(self, filename):
+
+        '''
+        This function should be called instead of direct spio.loadmat
+        as it cures the problem of not properly recovering python dictionaries
+        from mat files. It calls the function check keys to cure all entries
+        which are still mat-objects
+        
+        Mostly stolen from some hero https://stackoverflow.com/a/8832212
+        
+        '''
+
+        self.dict_ = spio.loadmat(filename, struct_as_record=False, squeeze_me=True)
+
+        self._check_keys()
+
+    def _check_keys(self):
+
+        '''
+        checks if entries in dictionary are mat-objects. If yes
+        todict is called to change them to nested dictionaries
+        '''
+        for key in self.dict_:
+            if isinstance(self.dict_[key], spio.matlab.mio5_params.mat_struct):
+                self.dict_[key] = self._todict(self.dict_[key])
+
+    @staticmethod
+    def _todict(matobj):
+        '''
+        A recursive function which constructs from matobjects nested dictionaries
+        '''
+        dict_ = {}
+        for strg in matobj._fieldnames:
+            elem = matobj.__dict__[strg]
+            if isinstance(elem, spio.matlab.mio5_params.mat_struct):
+                dict_[strg] = LoadMat._todict(elem)
+            else:
+                dict_[strg] = elem
+        return dict_
+
+

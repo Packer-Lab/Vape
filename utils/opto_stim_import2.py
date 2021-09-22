@@ -228,10 +228,10 @@ class OptoStim1p(OptoStimBasic):
             # go_start = self.session.times.get('detect_lick_go')
             # nogo_start = self.session.times.get('detect_lick_nogo')
 
-            go_start = [line.split(' ')[0] for line in self.print_lines
+            go_start = [int(line.split(' ')[0]) for line in self.print_lines
                         if 'goTrial' in line]
 
-            nogo_start = [line.split(' ')[0] for line in self.print_lines
+            nogo_start = [int(line.split(' ')[0]) for line in self.print_lines
                           if 'nogo_trial' in line]
 
             ts = np.sort(np.hstack((go_start, nogo_start)))
@@ -269,11 +269,12 @@ class OptoStim2p(OptoStimBasic):
         self.alltrials_barcodes = [re.search('(?<=Barcode )(.*)', line).group(0)
                                    for line in _alltrials_trigger_lines]
 
-        assert len(self.slm_barcode) == self.trial_type.count('go')
+        assert len(self.slm_barcode) == self.trial_type.count('go'),\
+                  '{} {}'.format(len(self.slm_barcode), self.trial_type.count('go'))
         # necessary to analyse sessions without nogo blimping
         if len(self.nogo_barcode) > 0:
             assert len(self.nogo_barcode) == self.trial_type.count('nogo'),\
-                  '{} {}'.format(self.nogo_barcode, self.trial_type.count('nogo'))
+                  '{} {}'.format(len(self.nogo_barcode), self.trial_type.count('nogo'))
 
         self.rsync = self.session.times.get('rsync')
         # go_start = self.session.times.get('SLM_state')
@@ -290,9 +291,10 @@ class BlimpImport(OptoStim2p):
 
     #from the URL
     sheet_IDs = ['1GG5Y0yCEw_h5dMfHBnBRTh5NXgF6NqC_VVGfSpCHroc',
-                 '1nFdqJv1aZk36CrBpRZPjRuOTHUKX8SXuVW9pa89OIHY']
+                 '1nFdqJv1aZk36CrBpRZPjRuOTHUKX8SXuVW9pa89OIHY',
+                 '1Cnt8-e7rGFMlvkRwkiT2BlWC4Ll6uvC9iO3dVugyMbM']
 
-    server_path = os.path.expanduser('~/mnt/qnap/Data')
+    server_path = '/home/jrowland/mnt/qnap/Data'
 
     # the column headers of the spreadsheet 
     date_header = 'Date'
@@ -380,7 +382,7 @@ class BlimpImport(OptoStim2p):
 
         obj_list = []
         for date, pyc in zip(dates_1p, pycontrol_1p):
-            umbrella = os.path.join(BlimpImport.server_path, date)
+            umbrella = os.path.join(BlimpImport.server_path, '1-photon-behaviour')
             pycontrol_path = gsheet.path_finder(umbrella, pyc, is_folder=False)
             obj = OptoStim1p(pycontrol_path[0])
             obj_list.append(obj)
@@ -429,7 +431,10 @@ class BlimpImport(OptoStim2p):
         self.blimp_path = gsheet.path_finder(umbrella, blimp, is_folder=True)[0]
         # Bit of a hack as often naparm is used from previous days and 
         # so is not in the umbrella
-        naparm_umbrella = os.path.join(BlimpImport.server_path, naparm.split('_')[0])
+        #naparm_umbrella = os.path.join(BlimpImport.server_path, naparm.split('_')[0])
+        # Hack changed so does not rely on underscore. Now assumes that the naparm
+        # folder starts with iso-standard date to match the Data umbrella folder
+        naparm_umbrella = os.path.join(BlimpImport.server_path, naparm[:10])
         self.naparm_path = gsheet.path_finder(naparm_umbrella, naparm, is_folder=True)
         self.pycontrol_path, self.paq_path, self.prereward_path =\
         gsheet.path_finder(umbrella, pycontrol, paq, prereward, is_folder=False)
