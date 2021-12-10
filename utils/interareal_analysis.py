@@ -1302,7 +1302,7 @@ class interarealAnalysis():
         self.trial_target_dff = self._targetSumDff()
 
                           
-    def s2pAnalysis(self, s2_borders_path, trial_sig_calc='dff'):
+    def s2pAnalysis(self, s2_borders_path, prestim_sec=2, poststim_sec=10, test_sec=0.5, trial_sig_calc='dff'):
         '''
         Take Suite2p outputs, collate relevant metadata, process raw data and analyse metrics
         on individual trials as well as across trial averages
@@ -1342,9 +1342,9 @@ class interarealAnalysis():
                 self.sta_sig = [] # based on t-test between dff test periods
                 self.sta_sig_nomulti = [] # as above, no multiple comparisons correction
 
-                self.pre_frames = int(np.ceil(self.fps*5)) # pre-stim period to include in trial
-                self.post_frames = int(np.ceil(self.fps*10)) # post-stim period to include in trial
-                self.test_frames = int(np.ceil(self.fps*0.5)) # test period for stats
+                self.pre_frames = int(np.ceil(self.fps*prestim_sec)) # pre-stim period to include in trial
+                self.post_frames = int(np.ceil(self.fps*poststim_sec)) # post-stim period to include in trial
+                self.test_frames = int(np.ceil(self.fps*test_sec)) # test period for stats
 
                 for plane in range(self.n_planes):
                     
