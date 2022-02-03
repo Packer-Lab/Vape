@@ -9,6 +9,7 @@ import math
 import bisect
 import copy
 import pickle
+from scipy import stats
 
 # global plotting params
 params = {'legend.fontsize': 'x-large',
@@ -1052,3 +1053,39 @@ def savePlot(save_path):
     '''
     plt.savefig(save_path + '.png', bbox_inches='tight')
     plt.savefig(save_path + '.svg', bbox_inches='tight')
+    
+    
+def stat_test_timepoint(df, time_array, col_1='', col_2='', frames_bin=2, th=0.05):
+    '''
+    time array with time in seconds, should be same size as accuracy arrays 
+    use nans to exclude (artefact) periods
+    '''
+    
+    # df with spont, pr, ps in across time array
+    signif_array = np.zeros(len(time_array))
+    n_bins = int(np.floor(np.sum(~np.isnan(time_array)) / frames_bin))  # exclude artefact in test
+    th_bonf = th / n_bins  # perform bonferroni correction for number of tests
+
+    for i_bin in range(n_bins):  # loop through bins
+        start_frame = int(i_bin * frames_bin)
+        end_frame = int((i_bin + 1) * frames_bin)
+        time_min = time_array[start_frame]
+        if end_frame >= len(time_array):
+            time_max = time_array[-1] + 0.1
+            end_frame = len(time_array) 
+        else:
+            time_max = time_array[end_frame]
+        
+        if np.sum(np.isnan(time_array[start_frame:end_frame + 1])) > 0:
+            continue  # skip bins that contains nans [during artefact]
+        else:
+            inds_rows = np.logical_and(df['timepoint'] >= time_min, 
+                                    df['timepoint'] < time_max)
+            sub_df = df[inds_rows]  # select df during this time bin
+
+            stat, pval = stats.wilcoxon(x=sub_df[col_1], y=sub_df[col_2], 
+                                            alternative='two-sided')
+            if pval < th_bonf:
+                signif_array[start_frame:end_frame] = 1  # indicate significance
+
+    return signif_array
