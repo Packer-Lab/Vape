@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd 
 import xarray as xr
 import scipy
+from profilehooks import profile, timecall
 
 ## From Vape:
 # import utils.ia_funcs as ia 
@@ -31,6 +32,15 @@ sys.path.append(vape_path)
 sys.path.append(os.path.join(vape_path, 'my_suite2p')) # to import ops from settings.py in that folder
 sys.path.append(s2p_path)
 import suite2p
+
+prop_cycle = plt.rcParams['axes.prop_cycle']
+colors = prop_cycle.by_key()['color']
+colour_tt_dict = {'sensory': colors[0],
+                  'random': colors[1],
+                  'projecting': colors[2],
+                  'non_projecting': colors[3],
+                  'whisker': colors[4],
+                  'sham': 'k'}
 
 def get_session_names(pkl_folder=pkl_folder,
                       sess_type='sens'):
@@ -78,6 +88,7 @@ class SimpleSession():
 
         self.SesObj, self.session_name = load_session(sess_type=self.sess_type,
                                 session_id=self.session_id, verbose=self.verbose)
+        self.session_name_readable = self.session_name.rstrip('.pkl')
         
         if sess_type == 'sens':
             self._list_tt_original = ['photostim_s', 'photostim_r', 'spont', 'whisker_stim']
@@ -122,19 +133,23 @@ class SimpleSession():
         # assert type(self._mask_neurons_keep[0]) == np.bool, type(self._mask_neurons_keep)
         self.n_neurons = np.sum(mask_neurons)
         
-
     def create_data_objects(self):
         """Put original data objects of self.SesObj in more convenient format that incorporates neuron filtering"""
         self.all_trials, self.targeted_cells = {}, {}
         self.n_targeted_cells, self._n_targeted_cells_original = {}, {} 
         self.cell_s1, self.cell_s2, self.cell_id= {}, {}, {}
         self.stim_dur, self.target_coords = {}, {}
+
+        ## concatenating all trials
+        """trials are done in block format; 100 trials per type. 
+        Do in 4 blocks (no interleaving). Whisker, sham, PS1 PS2. (swap last two every other experiment). 
+        ITI 15 seconds, (but data is defined as 12 second trials)"""
         if self.sess_type == 'sens':
             self._key_dict = {'photostim_s': 'sensory', 
                               'photostim_r': 'random',
                               'whisker_stim': 'whisker',
                               'spont': 'sham'}
-        elif sess_type == 'proj':
+        elif self.sess_type == 'proj':
             self._key_dict = {'photostim_s': 'projecting', 
                               'photostim_r': 'non_projecting',
                               'spont': 'sham'}
@@ -190,10 +205,12 @@ class SimpleSession():
                                'trial_type': ('trial', tt_arr)})
 
         self.full_ds = data_set
+        self.time_aggr_ds = None
 
        
     def dataset_selector(self, region=None, min_t=None, max_t=None, trial_type_list=None,
-                         remove_added_dimensions=True, sort_neurons=True, reset_sort=False):
+                         remove_added_dimensions=True, sort_neurons=True, reset_sort=False,
+                         deepcopy=True):
         """## xarray indexing cheat sheet:
         self.full_ds.activity.data  # retrieve numpy array type 
         self.full_ds.activity[0, :, :]  # use np indexing 
@@ -210,7 +227,10 @@ class SimpleSession():
         self.full_ds.where(tmp_full_ds.trial_type.isin(['sensory', 'random']), drop=True)  # use da.isin for multipel value checking
         """
 
-        tmp_data = self.full_ds.copy(deep=True)
+        if deepcopy:
+            tmp_data = self.full_ds.copy(deep=True)
+        else:
+            tmp_data = self.full_ds
         if region is not None:
             assert region in ['s1', 's2']
             if region == 's1':
@@ -252,8 +272,8 @@ class SimpleSession():
             if self.sorted_inds_neurons is None or reset_sort:
                 if self.verbose > 0:
                     print('sorting neurons')
-                _ = self.sort_neurons(data=tmp_data.activity.data.mean(2))
-            tmp_data = tmp_data.assign(sorting_neuron_indices=('neuron', self.sorted_inds_neurons))  # add sorted indices on neuron dim
+                _ = self.sort_neurons(data=tmp_data.activity.data.mean(2), sorting_method='correlation')
+            tmp_data = tmp_data.assign(sorting_neuron_indices=('neuron', self.sorted_inds_neurons_inverse))  # add sorted indices on neuron dim
             tmp_data = tmp_data.sortby(tmp_data.sorting_neuron_indices)
 
         return tmp_data
@@ -290,8 +310,60 @@ class SimpleSession():
         if self.verbose > 0:
             print(f'Neurons sorted by {sorting_method}')
         self.sorted_inds_neurons = sorting
+        tmp_rev_sort = np.zeros_like(sorting)
+        for old_ind, new_ind in enumerate(sorting):
+            tmp_rev_sort[new_ind] = old_ind
+        self.sorted_inds_neurons_inverse = tmp_rev_sort
         return sorting
 
+    def create_time_averaged_response(self, t_min=0.4, t_max=2, 
+                        region=None, aggregation_method='average',
+                        sort_neurons=False):
+        """region: 's1', 's2', None [for both]"""
+        selected_ds = self.dataset_selector(region=region, min_t=t_min, max_t=t_max,
+                                    sort_neurons=False, remove_added_dimensions=True)  # all trial types
+        if aggregation_method == 'average':
+            tt_arr = selected_ds.trial_type.data  # extract becauses it's an arr of str, and those cannot be meaned (so will be dropped)
+            selected_ds = selected_ds.mean('time')
+            selected_ds = selected_ds.assign(trial_type=('trial', tt_arr))  # put back
+        else:
+            print(f'WARNING: {aggregation_method} method not implemented!')
+        
+        if sort_neurons:
+            self.sort_neurons(data=selected_ds.activity, 
+                            sorting_method='sum')
+            selected_ds = selected_ds.assign(sorting_neuron_indices=('neuron', self.sorted_inds_neurons_inverse))  # add sorted indices on neuron dim
+            selected_ds = selected_ds.sortby(selected_ds.sorting_neuron_indices)
+        
+        self.time_aggr_ds = selected_ds
+        return selected_ds
+        
+    def find_discr_index_neurons(self, tt_1='sensory', tt_2='sham'):
+
+        assert self.time_aggr_ds is not None 
+        mean_1 = self.time_aggr_ds.activity.where(self.time_aggr_ds.trial_type==tt_1, drop=True).mean('trial')
+        mean_2 = self.time_aggr_ds.activity.where(self.time_aggr_ds.trial_type==tt_2, drop=True).mean('trial')
+        
+        var_1 = self.time_aggr_ds.activity.where(self.time_aggr_ds.trial_type==tt_1, drop=True).var('trial')
+        var_2 = self.time_aggr_ds.activity.where(self.time_aggr_ds.trial_type==tt_2, drop=True).var('trial')
+
+        dprime = np.abs(mean_1 - mean_2) / np.sqrt(var_1 + var_2)
+        name = f'dprime_{tt_1}_{tt_2}'
+
+        self.time_aggr_ds = self.time_aggr_ds.assign(**{name: ('neuron', dprime)})
+        return dprime
+
+    def find_all_discr_inds(self, region='s2'):
+        if self.verbose > 0:
+            print('Creating time-aggregate data set')
+        ## make time-averaged data
+        self.create_time_averaged_response(sort_neurons=False, region=region)
+        ## get discr arrays (stored in time_aggr_ds)
+        if self.verbose > 0:
+            print('Calculating d prime values')
+        for tt in self.list_tt:  # get all comparisons vs sham
+            if tt != 'sham':
+                self.find_discr_index_neurons(tt_1=tt, tt_2='sham')
 
 
 def opt_leaf(w_mat, dim=0, link_metric='correlation'):
@@ -309,6 +381,68 @@ def opt_leaf(w_mat, dim=0, link_metric='correlation'):
     elif link_metric == 'correlation':
         opt_leaves = scipy.cluster.hierarchy.leaves_list(link_mat)
     return opt_leaves, (link_mat, dist)
+
+def despine(ax):
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+def plot_pop_av(Ses=None, ax_list=None, region_list=['s2']):
+    pop_act_dict = {}
+    if ax_list is None:
+        fig, ax = plt.subplots(len(region_list), len(Ses.list_tt), 
+                                figsize=(len(Ses.list_tt) * 5, 3 * len(region_list)),
+                                gridspec_kw={'wspace': 0.6, 'hspace': 0.5})
+    for i_r, region in enumerate(region_list):
+        if len(region_list) > 1:
+            ax_row = ax[i_r]
+        else:
+            ax_row = ax
+        for i_tt, tt in enumerate(Ses.list_tt):
+            pop_act_dict[tt] = Ses.dataset_selector(region=region, trial_type_list=[tt], 
+                                    remove_added_dimensions=True, sort_neurons=False)
+            pop_act_dict[tt].activity.mean('neuron').transpose().plot(ax=ax_row[i_tt], vmin=-0.5)
+            ax_row[i_tt].set_title(f'{tt} {region} population average')
+
+def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True):
+    if ax is None:
+        ax = plt.subplot(111)
+
+    if max_dprime is None:
+        max_dprime = 0
+        for tt in Ses.list_tt:
+            if tt != 'sham':  # comparison with sham 
+                arr_dprime = getattr(Ses.time_aggr_ds, f'dprime_{tt}_sham').data
+                max_dprime = np.maximum(max_dprime, arr_dprime.max())
+        max_dprime = np.maximum(max_dprime, 2)
+
+    if (Ses.time_aggr_ds.cell_s1 == 1).all():
+        region = 'S1'
+    elif (Ses.time_aggr_ds.cell_s1 == 0).all():
+        region = 'S2'
+    else:
+        region = 'S1 and S2'
+
+    ## Assume discr has already been computed 
+    bins = np.linspace(0, max_dprime * 1.01, 100)
+
+    arr_dprime_dict = {}
+    plot_tt_list = [tt for tt in Ses.list_tt if tt != 'sham']
+    for tt in plot_tt_list:
+        arr_dprime_dict[tt] = getattr(Ses.time_aggr_ds, f'dprime_{tt}_sham').data
+        _ = ax.hist(arr_dprime_dict[tt], bins=bins, alpha=0.7,
+                histtype='step', edgecolor=colour_tt_dict[tt],
+            linewidth=3, density=plot_density, label=f'{tt} vs sham')
+    # print(_)
+    ax.legend(loc='best', frameon=False)
+    ax.set_title(f'Discriminating trial types in {region} of\n{Ses.session_name_readable}')
+    ax.set_xlabel('d prime')
+    if plot_density:
+        ax.set_ylabel('density')
+    else:
+        ax.set_ylabel('number of cells')
+    despine(ax)
+
+
 
 
 # def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
