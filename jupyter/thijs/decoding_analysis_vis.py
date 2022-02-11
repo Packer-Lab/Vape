@@ -2,6 +2,7 @@
 ## Thijs van der Plas
 
 import os, sys, pickle
+from urllib import response
 import numpy as np 
 import matplotlib.pyplot as plt 
 import pandas as pd 
@@ -353,7 +354,36 @@ class SimpleSession():
         self.time_aggr_ds = self.time_aggr_ds.assign(**{name: ('neuron', dprime)})
         return dprime
 
-    def find_all_discr_inds(self, region='s2'):
+    def find_discr_index_neurons_shuffled(self, tt_1='sensory', tt_2='sham'):
+
+        assert self.time_aggr_ds is not None 
+        responses_both = self.time_aggr_ds.activity.where(self.time_aggr_ds.trial_type.isin([tt_1, tt_2]), drop=True)
+        responses_both = responses_both.copy(deep=True)
+        responses_both = responses_both.data  # go to numpy format to make sure shuffling works 
+        responses_both_shuffled = shuffle_along_axis(a=responses_both, axis=1)  # shuffle along trials, per neuron
+
+        # print('normal: ')
+        # print(responses_both.mean(1)[:20])
+        # print('\n shuffled:')
+        # print(responses_both_shuffled.mean(1)[:20])
+        assert np.isclose(responses_both_shuffled.mean(1), responses_both.mean(1), atol=1e-5).all()  # ensure shuffling is done along trial dim only 
+        assert responses_both_shuffled.shape[1] == 200, 'not 100 trials per tt??'
+        responses_1 = responses_both_shuffled[:, :100]
+        responses_2 = responses_both_shuffled[:, 100:]
+
+        mean_1 = responses_1.mean(1)
+        mean_2 = responses_2.mean(1)
+
+        var_1 = responses_1.var(1)
+        var_2 = responses_2.var(1)
+
+        dprime = np.abs(mean_1 - mean_2) / np.sqrt(var_1 + var_2)
+        name = f'dprime_{tt_1}_{tt_2}_shuffled'
+
+        self.time_aggr_ds = self.time_aggr_ds.assign(**{name: ('neuron', dprime)})
+        return dprime
+
+    def find_all_discr_inds(self, region='s2', shuffled=False):
         if self.verbose > 0:
             print('Creating time-aggregate data set')
         ## make time-averaged data
@@ -364,7 +394,13 @@ class SimpleSession():
         for tt in self.list_tt:  # get all comparisons vs sham
             if tt != 'sham':
                 self.find_discr_index_neurons(tt_1=tt, tt_2='sham')
+                if shuffled:
+                    self.find_discr_index_neurons_shuffled(tt_1=tt, tt_2='sham')
 
+def shuffle_along_axis(a, axis):
+    ## https://stackoverflow.com/questions/5040797/shuffling-numpy-array-along-a-given-axis
+    idx = np.random.rand(*a.shape).argsort(axis=axis)
+    return np.take_along_axis(a, idx, axis=axis)
 
 def opt_leaf(w_mat, dim=0, link_metric='correlation'):
     '''(from popoff)
@@ -403,7 +439,9 @@ def plot_pop_av(Ses=None, ax_list=None, region_list=['s2']):
             pop_act_dict[tt].activity.mean('neuron').transpose().plot(ax=ax_row[i_tt], vmin=-0.5)
             ax_row[i_tt].set_title(f'{tt} {region} population average')
 
-def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True):
+def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True,
+                    plot_shuffled=True, yscale_log=False, show_all_shuffled=False,
+                    plot_hist=True, plot_kde=False):
     if ax is None:
         ax = plt.subplot(111)
 
@@ -426,13 +464,37 @@ def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True):
     bins = np.linspace(0, max_dprime * 1.01, 100)
 
     arr_dprime_dict = {}
+    arr_dprime_shuffled_dict = {}
+    kde_log_corr = 1e-6 if yscale_log else 0
     plot_tt_list = [tt for tt in Ses.list_tt if tt != 'sham']
-    for tt in plot_tt_list:
+    for i_tt, tt in enumerate(plot_tt_list):
         arr_dprime_dict[tt] = getattr(Ses.time_aggr_ds, f'dprime_{tt}_sham').data
-        _ = ax.hist(arr_dprime_dict[tt], bins=bins, alpha=0.7,
-                histtype='step', edgecolor=colour_tt_dict[tt],
-            linewidth=3, density=plot_density, label=f'{tt} vs sham')
-    # print(_)
+        if plot_hist:
+            _ = ax.hist(arr_dprime_dict[tt], bins=bins, alpha=0.7,
+                    histtype='step', edgecolor=colour_tt_dict[tt],
+                    linewidth=3, density=plot_density, label=f'{tt} vs sham')
+        if plot_kde:
+            kde_f = scipy.stats.gaussian_kde(arr_dprime_dict[tt])
+            x_array = np.linspace(0, max_dprime * 1.01, 1000)
+            ax.plot(x_array, kde_f(x_array) + kde_log_corr, c=colour_tt_dict[tt], linewidth=3,
+                    alpha=0.7, label=f'{tt} vs sham')
+
+        if plot_shuffled:
+            if hasattr(Ses.time_aggr_ds, f'dprime_{tt}_sham_shuffled'):
+                if show_all_shuffled or i_tt == 0:  # show only first one if not all
+                    arr_dprime_shuffled_dict[tt] = getattr(Ses.time_aggr_ds, f'dprime_{tt}_sham_shuffled').data
+                    if plot_hist:
+                        _ = ax.hist(arr_dprime_shuffled_dict[tt], bins=bins, alpha=1,
+                                histtype='step', edgecolor='grey', linestyle='--',
+                                linewidth=3, density=plot_density, label=f'shuffled {tt} vs sham')
+                    if plot_kde:
+                        kde_f = scipy.stats.gaussian_kde(arr_dprime_shuffled_dict[tt])
+                        x_array = np.linspace(0, max_dprime * 1.01, 1000)
+                        ax.plot(x_array, kde_f(x_array) + kde_log_corr, c='grey', linewidth=3,
+                                alpha=0.7, label=f'shuffled {tt} vs sham')
+            else:
+                print("Shuffled discr not found!")
+
     ax.legend(loc='best', frameon=False)
     ax.set_title(f'Discriminating trial types in {region} of\n{Ses.session_name_readable}')
     ax.set_xlabel('d prime')
@@ -440,8 +502,9 @@ def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True):
         ax.set_ylabel('density')
     else:
         ax.set_ylabel('number of cells')
+    if yscale_log:
+        ax.set_yscale('log')
     despine(ax)
-
 
 
 
