@@ -1,14 +1,17 @@
 ## Analysis & visualisation code for decoding analysis
 ## Thijs van der Plas
 
+from json import decoder
 import os, sys, pickle
 from urllib import response
 import numpy as np 
 import matplotlib.pyplot as plt 
+import seaborn as sns
 import pandas as pd 
 import xarray as xr
 import scipy
 from profilehooks import profile, timecall
+import sklearn.discriminant_analysis, sklearn.model_selection
 
 ## From Vape:
 # import utils.ia_funcs as ia 
@@ -98,13 +101,13 @@ class SimpleSession():
 
         self.sorted_inds_neurons = None  # default 
 
-        self.filter_neurons()
+        self.filter_neurons(filter_max_abs_dff=True)
         self.create_data_objects()
         self.create_full_dataset()
         # self.sort_neurons(sorting_method='normal')
 
 
-    def filter_neurons(self):
+    def filter_neurons(self, filter_max_abs_dff=True):
         """Filter neurons that should not be used in any analysis. These are:
 
         - Neurons with max(abs(DF/F)) > 10 for any trial type
@@ -123,7 +126,10 @@ class SimpleSession():
         if self.verbose > 1:
             print(mv_neurons_mat)
         mv_neurons_mat = np.max(mv_neurons_mat, 1)  # max across tt
-        filter_neurons_arr = mv_neurons_mat > 10 
+        if filter_max_abs_dff:
+            filter_neurons_arr = mv_neurons_mat > 10 
+        else:
+            filter_neurons_arr = np.zeros(n_neurons, dtype=bool)
         mask_neurons = np.logical_not(filter_neurons_arr)  # flip (True = keep)
         if self.verbose > 0:
             print(f'Excluded {np.sum(filter_neurons_arr)} out of {len(filter_neurons_arr)} neurons')
@@ -208,7 +214,6 @@ class SimpleSession():
         self.full_ds = data_set
         self.time_aggr_ds = None
 
-       
     def dataset_selector(self, region=None, min_t=None, max_t=None, trial_type_list=None,
                          remove_added_dimensions=True, sort_neurons=True, reset_sort=False,
                          deepcopy=True):
@@ -267,7 +272,6 @@ class SimpleSession():
             if 'trial' in tmp_data.cell_id.dims:
                 tmp_data = tmp_data.assign(cell_id=tmp_data.cell_id.isel(trial=0).drop('trial')) 
 
-
         # apply sorting (to neurons, and randomizatin of trials ? )
         if sort_neurons:
             if self.sorted_inds_neurons is None or reset_sort:
@@ -319,24 +323,34 @@ class SimpleSession():
 
     def create_time_averaged_response(self, t_min=0.4, t_max=2, 
                         region=None, aggregation_method='average',
-                        sort_neurons=False):
+                        sort_neurons=False, subtract_pop_av=False,
+                        trial_type_list=None):
         """region: 's1', 's2', None [for both]"""
         selected_ds = self.dataset_selector(region=region, min_t=t_min, max_t=t_max,
-                                    sort_neurons=False, remove_added_dimensions=True)  # all trial types
+                                    sort_neurons=False, remove_added_dimensions=True,
+                                    trial_type_list=trial_type_list)  # all trial types
         if aggregation_method == 'average':
             tt_arr = selected_ds.trial_type.data  # extract becauses it's an arr of str, and those cannot be meaned (so will be dropped)
             selected_ds = selected_ds.mean('time')
             selected_ds = selected_ds.assign(trial_type=('trial', tt_arr))  # put back
+        elif aggregation_method == 'max':
+            tt_arr = selected_ds.trial_type.data  # extract becauses it's an arr of str, and those cannot be meaned (so will be dropped)
+            selected_ds = selected_ds.max('time')
+            selected_ds = selected_ds.assign(trial_type=('trial', tt_arr))  # put back
         else:
             print(f'WARNING: {aggregation_method} method not implemented!')
         
+        if subtract_pop_av:
+            selected_ds = selected_ds.assign(activity=selected_ds.activity - selected_ds.activity.mean('neuron'))
+
         if sort_neurons:
             self.sort_neurons(data=selected_ds.activity, 
-                            sorting_method='sum')
+                            sorting_method='correlation')
             selected_ds = selected_ds.assign(sorting_neuron_indices=('neuron', self.sorted_inds_neurons_inverse))  # add sorted indices on neuron dim
             selected_ds = selected_ds.sortby(selected_ds.sorting_neuron_indices)
         
         self.time_aggr_ds = selected_ds
+        self.time_aggr_ds_pop_av_subtracted = subtract_pop_av
         return selected_ds
         
     def find_discr_index_neurons(self, tt_1='sensory', tt_2='sham'):
@@ -383,11 +397,13 @@ class SimpleSession():
         self.time_aggr_ds = self.time_aggr_ds.assign(**{name: ('neuron', dprime)})
         return dprime
 
-    def find_all_discr_inds(self, region='s2', shuffled=False):
+    def find_all_discr_inds(self, region='s2', shuffled=False,
+                            subtract_pop_av=False):
         if self.verbose > 0:
             print('Creating time-aggregate data set')
         ## make time-averaged data
-        self.create_time_averaged_response(sort_neurons=False, region=region)
+        self.create_time_averaged_response(sort_neurons=False, region=region,
+                                           subtracts_pop_av=subtract_pop_av)
         ## get discr arrays (stored in time_aggr_ds)
         if self.verbose > 0:
             print('Calculating d prime values')
@@ -396,6 +412,62 @@ class SimpleSession():
                 self.find_discr_index_neurons(tt_1=tt, tt_2='sham')
                 if shuffled:
                     self.find_discr_index_neurons_shuffled(tt_1=tt, tt_2='sham')
+
+    def population_tt_decoder(self, region='s2', bool_subselect_neurons=False,
+                              decoder_type='LDA', tt_list=['whisker', 'sham'],
+                              n_cv_splits=5, verbose=1):
+        """Decode tt from pop of neurons.
+        Use time av response, region specific, neuron subselection.
+        Use CV, LDA?, return mean test accuracy"""
+        ## make time-averaged data
+        self.create_time_averaged_response(sort_neurons=False, region=region,
+                                           subtract_pop_av=False, trial_type_list=tt_list)
+        if verbose > 0:
+            print('Time-aggregated activity object created')
+        ## activity is now in self.time_aggr_ds
+
+        ## neuron subselection
+        assert bool_subselect_neurons is False, 'neuron sub selection not yet implemented'
+
+        ## Prepare data
+        tt_labels = self.time_aggr_ds.trial_type.data
+        neural_data = self.time_aggr_ds.activity.data.transpose()
+        assert tt_labels.shape[0] == neural_data.shape[0]  # number of trials 
+
+        ## prepare CV
+        cv_obj = sklearn.model_selection.StratifiedKFold(n_splits=n_cv_splits)
+        score_arr = np.zeros(n_cv_splits)
+
+        ## run decoder:
+        i_cv = 0
+        for train_index, test_index in cv_obj.split(X=neural_data, y=tt_labels):
+            if verbose > 0:
+                print(f'Decoder Cv loop {i_cv + 1}/{n_cv_splits}')
+            neural_train, neural_test = neural_data[train_index, :], neural_data[test_index, :]
+            tt_train, tt_test = tt_labels[train_index], tt_labels[test_index]
+
+            ##  select decoder 
+            if decoder_type == 'LDA':
+                decoder_model = sklearn.discriminant_analysis.LinearDiscriminantAnalysis()
+            elif decoder_type == 'QDA':
+                decoder_model = sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis()
+            elif decoder_type == 'logistic_regression':
+                decoder_model = sklearn.linear_model.LogisticRegression()
+            else:
+                assert False, 'NOT IMPLEMENTED'
+
+            decoder_model.fit(X=neural_train, y=tt_train)
+            score_arr[i_cv] = decoder_model.score(X=neural_test, y=tt_test)
+            if verbose > 0:
+                print(f'Score: {score_arr[i_cv]}')
+            i_cv += 1
+
+        if verbose > 0:
+            print(score_arr)
+
+        return score_arr
+
+        ##################{'whisker': array([0.94 , 0.615, 0.81 , 0.83 , 0.905, 0.665]), 'sensory': array([0.56 , 0.49 , 0.515, 0.62 , 0.505, 0.575]), 'random': array([0.5  , 0.41 , 0.5  , 0.5  , 0.49 , 0.485])}
 
 def shuffle_along_axis(a, axis):
     ## https://stackoverflow.com/questions/5040797/shuffling-numpy-array-along-a-given-axis
@@ -485,7 +557,7 @@ def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True,
                     arr_dprime_shuffled_dict[tt] = getattr(Ses.time_aggr_ds, f'dprime_{tt}_sham_shuffled').data
                     if plot_hist:
                         _ = ax.hist(arr_dprime_shuffled_dict[tt], bins=bins, alpha=1,
-                                histtype='step', edgecolor='grey', linestyle='--',
+                                histtype='step', edgecolor='grey', 
                                 linewidth=3, density=plot_density, label=f'shuffled {tt} vs sham')
                     if plot_kde:
                         kde_f = scipy.stats.gaussian_kde(arr_dprime_shuffled_dict[tt])
@@ -506,7 +578,20 @@ def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True,
         ax.set_yscale('log')
     despine(ax)
 
+def plot_raster_sorted_activity(Ses=None, sort_here=False, 
+                                plot_trial_type_list=['whisker', 'sham']):
+    fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+    plot_data = Ses.time_aggr_ds.activity.where(Ses.time_aggr_ds.trial_type.isin(plot_trial_type_list), drop=True).data
 
+    if sort_here:
+        sorted_inds = Ses.sort_neurons(data=plot_data, sorting_method='euclidean')
+        # print(sorted_inds)
+        plot_data = plot_data[sorted_inds, :]
+    sns.heatmap(plot_data, ax=ax, vmin=-0.5, vmax=0.5, 
+                cmap='BrBG')
+    ax.set_xlabel('Trial')
+
+    ax.set_ylabel('neuron')
 
 # def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
 #                             imshow_interpolation='nearest', plot_cbar=False, print_ylabel=False,
