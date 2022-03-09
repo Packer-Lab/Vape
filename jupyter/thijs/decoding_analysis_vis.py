@@ -45,6 +45,12 @@ colour_tt_dict = {'sensory': colors[0],
                   'non_projecting': colors[3],
                   'whisker': colors[4],
                   'sham': 'k'}
+label_tt_dict = {'sensory': 'Sensory',
+                  'random': 'Random',
+                  'projecting': 'Projecting',
+                  'non_projecting': 'Non-projecting',
+                  'whisker': 'Whisker',
+                  'sham': 'Sham'}                 
 
 def get_session_names(pkl_folder=pkl_folder,
                       sess_type='sens'):
@@ -251,7 +257,7 @@ class SimpleSession():
 
         if trial_type_list is not None:
             assert type(trial_type_list) == list
-            assert np.array([tt in self.list_tt for tt in trial_type_list]).all()
+            assert np.array([tt in self.list_tt for tt in trial_type_list]).all(), f'{trial_type_list} not in {self.list_tt}'
             tmp_data = tmp_data.where(tmp_data.trial_type.isin(trial_type_list), drop=True)
 
         ## squeeze trial type &  potentially other vars that got extra dims (cell_s1 cell_id)
@@ -592,6 +598,42 @@ def plot_raster_sorted_activity(Ses=None, sort_here=False,
     ax.set_xlabel('Trial')
 
     ax.set_ylabel('neuron')
+
+def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
+
+    if dict_sess_type_tt is None:
+        dict_sess_type_tt = {'sens': ['sensory', 'random', 'whisker'],
+                             'proj': ['projecting', 'non_projecting']}
+    n_tt = 5
+    fig, ax = plt.subplots(1, 2, figsize=(8, 3), gridspec_kw={'wspace': 0.5})
+
+    for i_r, region in enumerate(['s1', 's2']):
+        ax_curr = ax[i_r]
+        
+        mean_score_arr, err_score_arr = np.zeros(n_tt), np.zeros(n_tt)
+        color_list, label_list = [], []
+        i_tt = 0
+        for sess_type, tt_test_list in dict_sess_type_tt.items():
+            for tt in tt_test_list:
+                curr_scores = scores_dict[region][sess_type][tt]
+                mean_score_arr[i_tt] = np.mean(curr_scores)
+                err_score_arr[i_tt] = np.std(curr_scores) / np.sqrt(len(curr_scores)) * 1.96
+                color_list.append(colour_tt_dict[tt])
+                label_list.append(label_tt_dict[tt])
+                i_tt += 1
+                
+        ax_curr.bar(x=np.arange(n_tt), height=mean_score_arr - 0.5, yerr=err_score_arr,
+                    color=color_list, edgecolor='k', linewidth=2, tick_label=label_list,
+                    width=0.8, bottom=0.5)
+        ax_curr.set_ylim([0, 1])
+        ax_curr.set_xlabel('Trial type')
+        ax_curr.set_ylabel('Decoding accuracy')
+        ax_curr.text(x=-0.5, y=0.05, s=f'{region.upper()}', fontdict={'weight': 'bold'})
+        despine(ax_curr)
+        ax_curr.set_xticklabels(ax_curr.get_xticklabels(), rotation=45)
+    ax[0].text(y=1.15, x=6, fontdict={'weight': 'bold', 'ha': 'center'},
+                s=f'Full population LDA-decoding of trial types vs sham across 6 sessions')
+        
 
 # def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
 #                             imshow_interpolation='nearest', plot_cbar=False, print_ylabel=False,
