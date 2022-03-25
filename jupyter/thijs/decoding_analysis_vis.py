@@ -3,6 +3,7 @@
 
 from json import decoder
 import os, sys, pickle
+from select import select
 from urllib import response
 import numpy as np 
 import matplotlib.pyplot as plt 
@@ -11,7 +12,7 @@ import pandas as pd
 import xarray as xr
 import scipy
 from profilehooks import profile, timecall
-import sklearn.discriminant_analysis, sklearn.model_selection
+import sklearn.discriminant_analysis, sklearn.model_selection, sklearn.decomposition
 
 ## From Vape:
 # import utils.ia_funcs as ia 
@@ -330,11 +331,31 @@ class SimpleSession():
     def create_time_averaged_response(self, t_min=0.4, t_max=2, 
                         region=None, aggregation_method='average',
                         sort_neurons=False, subtract_pop_av=False,
+                        subtract_pcs=False,
                         trial_type_list=None):
         """region: 's1', 's2', None [for both]"""
         selected_ds = self.dataset_selector(region=region, min_t=t_min, max_t=t_max,
                                     sort_neurons=False, remove_added_dimensions=True,
                                     trial_type_list=trial_type_list)  # all trial types
+        
+        if subtract_pcs:
+            n_timepoints_per_trial = len(selected_ds.time)
+            n_trials = len(selected_ds.trial)
+            selected_ds_2d = xr.concat([selected_ds.sel(trial=i_trial) for i_trial in selected_ds.trial], dim='time')  # concat trials on time axis
+            # lfa = sklearn.decomposition.FactorAnalysis(n_components=2)
+            lfa = sklearn.decomposition.PCA(n_components=3)
+            activity_fit = selected_ds_2d.activity.data  # neurons x times
+            activity_fit = activity_fit.transpose()
+            pc_activity = lfa.fit_transform(X=activity_fit)
+            print(lfa.explained_variance_ratio_)
+            activity_neurons_proj_pcs = np.dot(pc_activity, lfa.components_)  # dot prod of PCA activity x loading
+            activity_neurons_proj_pcs = activity_neurons_proj_pcs.transpose()
+            activity_neurons_proj_pcs_3d = np.stack([activity_neurons_proj_pcs[:, (i_trial * n_timepoints_per_trial):((i_trial + 1) * n_timepoints_per_trial)] for i_trial in range(n_trials)], 
+                                                    axis=2)
+            # print(f'Subtracted LFA.')
+            # selected_ds = selected_ds.assign(activity=selected_ds.activity - activity_neurons_proj_pcs_3d)
+            print(f'Showing top 3 PCs')
+            selected_ds = selected_ds.assign(activity=(('neuron', 'time', 'trial'), activity_neurons_proj_pcs_3d))
         if aggregation_method == 'average':
             tt_arr = selected_ds.trial_type.data  # extract becauses it's an arr of str, and those cannot be meaned (so will be dropped)
             selected_ds = selected_ds.mean('time')
@@ -421,12 +442,13 @@ class SimpleSession():
 
     def population_tt_decoder(self, region='s2', bool_subselect_neurons=False,
                               decoder_type='LDA', tt_list=['whisker', 'sham'],
-                              n_cv_splits=5, verbose=1):
+                              n_cv_splits=5, verbose=1, subtract_pcs=False):
         """Decode tt from pop of neurons.
         Use time av response, region specific, neuron subselection.
         Use CV, LDA?, return mean test accuracy"""
         ## make time-averaged data
         self.create_time_averaged_response(sort_neurons=False, region=region,
+                                            subtract_pcs=subtract_pcs,
                                            subtract_pop_av=False, trial_type_list=tt_list)
         if verbose > 0:
             print('Time-aggregated activity object created')
@@ -584,9 +606,16 @@ def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True,
         ax.set_yscale('log')
     despine(ax)
 
-def plot_raster_sorted_activity(Ses=None, sort_here=False, 
-                                plot_trial_type_list=['whisker', 'sham']):
+def plot_raster_sorted_activity(Ses=None, sort_here=False, create_new_time_aggr_data=False,
+                                region='s2', ## region only applicable to creating new data!!
+                                plot_trial_type_list=['whisker', 'sham'], verbose=1):
     fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+    if create_new_time_aggr_data or (Ses.time_aggr_ds is None):
+        ## make time-averaged data
+        if verbose > 0:
+            print('Creating time aggregated data')
+        Ses.create_time_averaged_response(sort_neurons=False, region=region,
+                                           subtract_pop_av=False)
     plot_data = Ses.time_aggr_ds.activity.where(Ses.time_aggr_ds.trial_type.isin(plot_trial_type_list), drop=True).data
 
     if sort_here:
@@ -596,7 +625,6 @@ def plot_raster_sorted_activity(Ses=None, sort_here=False,
     sns.heatmap(plot_data, ax=ax, vmin=-0.5, vmax=0.5, 
                 cmap='BrBG')
     ax.set_xlabel('Trial')
-
     ax.set_ylabel('neuron')
 
 def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
@@ -634,6 +662,60 @@ def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
     ax[0].text(y=1.15, x=6, fontdict={'weight': 'bold', 'ha': 'center'},
                 s=f'Full population LDA-decoding of trial types vs sham across 6 sessions')
         
+def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'random', 'sham'],
+                                ax=None, region='s2', t_min=-1, t_max=6, save_fig=False):
+    if ax is None:
+        fig, ax = plt.subplots(2, 2, figsize=(12, 12))
+    pc_activity_dict = {}
+    for i_tt, tt in enumerate(trial_type_list):
+        selected_ds = Ses.dataset_selector(region=region, min_t=t_min, max_t=t_max,
+                                    sort_neurons=False, remove_added_dimensions=True,
+                                    trial_type_list=[tt])  # all trial types
+        selected_ds = selected_ds.mean('trial')  # trial average activity
+
+        n_timepoints_per_trial = len(selected_ds.time)
+        pca = sklearn.decomposition.PCA(n_components=3)
+        activity_fit = selected_ds.activity.data  # neurons x times
+        assert activity_fit.shape[1] == n_timepoints_per_trial
+        activity_fit = activity_fit.transpose()
+        pc_activity = pca.fit_transform(X=activity_fit)
+        pc_activity_dict[tt] = pc_activity.transpose()
+        expl_var = pca.explained_variance_ratio_
+        print(tt, 'explained var: ', expl_var)
+        
+        ax[0, 0].plot(pc_activity_dict[tt][0, :], pc_activity_dict[tt][1, :], marker='o',
+                        color=colour_tt_dict[tt], linewidth=2, label=tt, linestyle='-')
+        ax[0, 1].plot(selected_ds.time, pc_activity_dict[tt][0, :],
+                        color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[0], 3))}')
+
+        ax[1, 0].plot(selected_ds.time, pc_activity_dict[tt][1, :],
+        color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[1], 3))}')
+        ax[1, 1].plot(selected_ds.time, pc_activity_dict[tt][2, :],
+        color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[2], 3))}')
+    ax[0, 0].set_xlabel('PC 1')
+    ax[0, 0].set_ylabel('PC 2')
+    ax[0, 0].legend(loc='best')
+    ax[0, 0].set_title('State space PC1 vs PC2', fontdict={'weight': 'bold'})
+
+    ax[0, 1].set_xlabel('Time')
+    ax[0, 1].set_ylabel('PC 1')
+    ax[0, 1].legend(loc='best')
+    ax[0, 0].set_title('PC1 activity', fontdict={'weight': 'bold'})
+
+    ax[1, 0].set_xlabel('Time')
+    ax[1, 0].set_ylabel('PC 2')
+    ax[1, 0].legend(loc='best')
+    ax[0, 0].set_title('PC2 activity', fontdict={'weight': 'bold'})
+
+    ax[1, 1].set_xlabel('Time')
+    ax[1, 1].set_ylabel('PC 3')
+    ax[1, 1].legend(loc='best')
+    ax[0, 0].set_title('PC3 activity', fontdict={'weight': 'bold'})
+
+    plt.suptitle(f'Trial-average PC traces in {region.upper()}', fontdict={'weight': 'bold'})
+
+    if save_fig:
+        plt.savefig(f'/home/tplas/repos/Vape/jupyter/thijs/figs/pca_activity__{Ses.sess_type}__{Ses.session_name_readable}.pdf', bbox_inches='tight')
 
 # def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
 #                             imshow_interpolation='nearest', plot_cbar=False, print_ylabel=False,
