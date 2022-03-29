@@ -663,14 +663,23 @@ def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
                 s=f'Full population LDA-decoding of trial types vs sham across 6 sessions')
         
 def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'random', 'sham'],
-                                merge_trial_types_during_pca=False, verbose=0,
-                                ax=None, region='s2', t_min=-1, t_max=6, save_fig=False):
+                                merge_trial_types_during_pca=True, verbose=0,
+                                plot_indiv_trials=True, plot_loadings=True,
+                                ax=None, ax_bottom=None, region='s2', t_min=-1, t_max=6, save_fig=False):
     if ax is None:
-        fig, ax = plt.subplots(2, 2, figsize=(8, 8), gridspec_kw={'wspace': 0.6, 'hspace': 0.6})
+        if plot_loadings:
+            fig = plt.figure(constrained_layout=False, figsize=(8, 9))
+            gs_top = fig.add_gridspec(ncols=2, nrows=2, wspace=0.6, hspace=0.4, top=0.9, left=0.05, right=0.95, bottom=0.35)
+            gs_bottom = fig.add_gridspec(ncols=3, nrows=1, wspace=0.6, top=0.22, left=0.05, right=0.95, bottom=0.05)
+            ax = np.array([[fig.add_subplot(gs_top[0, 0]), fig.add_subplot(gs_top[0, 1])], 
+                             [fig.add_subplot(gs_top[1, 0]), fig.add_subplot(gs_top[1, 1])]])
+            ax_bottom = [fig.add_subplot(gs_bottom[x]) for x in range(3)]
+        else:
+            fig, ax = plt.subplots(2, 2, figsize=(8, 8), gridspec_kw={'wspace': 0.6, 'hspace': 0.6})
     pc_activity_dict = {}
+    n_pcs = 3
 
     ## PCA calculation:
-    
     if merge_trial_types_during_pca:
         if trial_type_list != sorted(trial_type_list):
             print('WARNING: trial type list should be sorted alphabetically. doing that now for you')
@@ -678,19 +687,19 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
         selected_ds = Ses.dataset_selector(region=region, min_t=t_min, max_t=t_max,
                                         sort_neurons=False, remove_added_dimensions=True,
                                         trial_type_list=trial_type_list)  # all trial types
-        selected_ds = selected_ds.groupby('trial_type').mean('trial')  # mean across trials per trial type
-        assert selected_ds.activity.ndim == 3
-        assert list(selected_ds.coords.keys()) == ['neuron', 'time', 'trial_type']
-        assert (selected_ds.trial_type == trial_type_list).all(), f'Order trial types not correct. in Ds: {selected_ds.trial_type}, in arg: {trial_type_list}'  ## double check that order of tts is same as input arg, because xarray will sort trial types alphabetically after groupby. (Though technically it doesnt matter because of list concat by trial_types_list order in lines below)
-        n_timepoints_per_trial = len(selected_ds.time)
+        selected_ds_av = selected_ds.groupby('trial_type').mean('trial')  # mean across trials per trial type
+        assert selected_ds_av.activity.ndim == 3
+        assert list(selected_ds_av.coords.keys()) == ['neuron', 'time', 'trial_type']
+        assert (selected_ds_av.trial_type == trial_type_list).all(), f'Order trial types not correct. in Ds: {selected_ds_av.trial_type}, in arg: {trial_type_list}'  ## double check that order of tts is same as input arg, because xarray will sort trial types alphabetically after groupby. (Though technically it doesnt matter because of list concat by trial_types_list order in lines below)
+        n_timepoints_per_trial = len(selected_ds_av.time)
 
-        activity_fit = np.concatenate([selected_ds.activity.sel(trial_type=tt).data for tt in trial_type_list], axis=1)  # concat average data per trial along time axis
+        activity_fit = np.concatenate([selected_ds_av.activity.sel(trial_type=tt).data for tt in trial_type_list], axis=1)  # concat average data per trial along time axis
         for i_tt, tt in enumerate(trial_type_list):
-            assert (selected_ds.activity.sel(trial_type=tt).data == activity_fit[:, (i_tt * n_timepoints_per_trial):((i_tt + 1) * n_timepoints_per_trial)]).all()
+            assert (selected_ds_av.activity.sel(trial_type=tt).data == activity_fit[:, (i_tt * n_timepoints_per_trial):((i_tt + 1) * n_timepoints_per_trial)]).all()
         assert activity_fit.ndim == 2
         assert activity_fit.shape[1] == len(trial_type_list) * n_timepoints_per_trial  # neurons x times
         activity_fit = activity_fit.transpose()
-        pca = sklearn.decomposition.PCA(n_components=3)
+        pca = sklearn.decomposition.PCA(n_components=n_pcs)
         pc_activity = pca.fit_transform(X=activity_fit)
         pc_activity = pc_activity.transpose()
         assert pc_activity.shape[1] == len(trial_type_list) * n_timepoints_per_trial
@@ -700,16 +709,27 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
 
         for i_tt, tt in enumerate(trial_type_list):  ## (we know order is same because of earlier assert)
             pc_activity_dict[tt] = pc_activity[:, (i_tt * n_timepoints_per_trial):((i_tt + 1) * n_timepoints_per_trial)]
+
+        if plot_indiv_trials:
+            n_trials_per_tt = 100
+            assert len(selected_ds.trial) == int(n_trials_per_tt * len(trial_type_list))
+            pc_activity_indiv_trials_dict = {tt: np.zeros((n_pcs, n_timepoints_per_trial, n_trials_per_tt)) for tt in trial_type_list}
+            assert pca.components_.shape == (n_pcs, len(selected_ds.neuron))
+            for i_tt, tt in enumerate(trial_type_list):
+                current_tt_ds = selected_ds.where(selected_ds.trial_type == tt, drop=True)
+                for i_trial in range(n_trials_per_tt):
+                    pc_activity_indiv_trials_dict[tt][:, :, i_trial] = np.dot(pca.components_, current_tt_ds.activity.isel(trial=i_trial))
+
     else:
         for i_tt, tt in enumerate(trial_type_list):
             selected_ds = Ses.dataset_selector(region=region, min_t=t_min, max_t=t_max,
                                         sort_neurons=False, remove_added_dimensions=True,
                                         trial_type_list=[tt])  # select just this trial type (tt)
-            selected_ds = selected_ds.mean('trial')  # trial average activity
+            selected_ds_av = selected_ds.mean('trial')  # trial average activity
 
-            n_timepoints_per_trial = len(selected_ds.time)
-            pca = sklearn.decomposition.PCA(n_components=3)
-            activity_fit = selected_ds.activity.data  # neurons x times
+            n_timepoints_per_trial = len(selected_ds_av.time)
+            pca = sklearn.decomposition.PCA(n_components=n_pcs)
+            activity_fit = selected_ds_av.activity.data  # neurons x times
             assert activity_fit.shape[1] == n_timepoints_per_trial
             activity_fit = activity_fit.transpose()
             pc_activity = pca.fit_transform(X=activity_fit)
@@ -723,14 +743,34 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
             
         ax[0, 0].plot(pc_activity_dict[tt][0, :], pc_activity_dict[tt][1, :], marker='o',
                         color=colour_tt_dict[tt], linewidth=2, label=tt, linestyle='-')
-        ax[0, 1].plot(selected_ds.time, pc_activity_dict[tt][0, :],
-                        color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[0], 3))}')
 
-        ax[1, 0].plot(selected_ds.time, pc_activity_dict[tt][1, :],
-        color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[1], 3))}')
-        ax[1, 1].plot(selected_ds.time, pc_activity_dict[tt][2, :],
-        color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[2], 3))}')
-  
+        i_row = 0
+        i_col = 1
+        for i_plot in range(3):
+            pc_num = i_plot + 1
+            curr_ax = ax[i_row, i_col]
+        
+            curr_ax.plot(selected_ds_av.time, pc_activity_dict[tt][i_plot, :],
+                            color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[i_plot], 3))}')
+
+            if plot_indiv_trials:
+                indiv_activity = pc_activity_indiv_trials_dict[tt][i_plot, :, :]
+                ci = np.std(indiv_activity, 1) * 1.96 / np.sqrt(indiv_activity.shape[1])
+                curr_ax.fill_between(selected_ds_av.time, pc_activity_dict[tt][i_plot, :] - ci, 
+                                    pc_activity_dict[tt][i_plot, :] + ci, color=colour_tt_dict[tt], alpha=0.5)
+
+            i_col += 1
+            if i_col == 2:
+                i_col = 0
+                i_row += 1
+
+            if plot_loadings:
+                ax_bottom[i_plot].hist(pca.components_[i_plot], bins=30, color='grey', linewidth=1)
+                ax_bottom[i_plot].set_xlabel(f'PC {pc_num} loading')
+                ax_bottom[i_plot].set_ylabel('Frequency')
+                ax_bottom[i_plot].set_title(f'Loadings of PC {pc_num}', fontdict={'weight': 'bold'})
+
+    ## Cosmetics:
     despine(ax[0, 0])
     ax[0, 0].set_xlabel('PC 1')
     ax[0, 0].set_ylabel('PC 2')
@@ -746,7 +786,7 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
         curr_ax.set_xlabel('Time (s)')
         curr_ax.set_ylabel(f'PC {pc_num}')
         if merge_trial_types_during_pca:
-            curr_ax.set_title(f'PC {pc_num} activity, {int(np.round(expl_var[i_plot] * 100))}% EV', fontdict={'weight': 'bold'})
+            curr_ax.set_title(f'PC {pc_num} activity, {int(np.round(expl_var[i_plot] * 100))}% EV of trial-av.', fontdict={'weight': 'bold'})
         else:
             curr_ax.set_title(f'PC {pc_num} activity', fontdict={'weight': 'bold'})
             curr_ax.legend(loc='best')
@@ -754,11 +794,13 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
         if i_col == 2:
             i_col = 0
             i_row += 1
+        if plot_loadings:
+            despine(ax_bottom[i_plot])
     
     plt.suptitle(f'Trial-average PC traces in {region.upper()} region of {Ses.session_name_readable}', fontdict={'weight': 'bold'})
 
     if save_fig:
-        plt.savefig(f'/home/tplas/repos/Vape/jupyter/thijs/figs/pca_activity__{Ses.sess_type}__{Ses.session_name_readable}.pdf', bbox_inches='tight')
+        plt.savefig(f'/home/tplas/repos/Vape/jupyter/thijs/figs/pca_activity__{Ses.sess_type}__{Ses.session_name_readable}_{region.upper()}.pdf', bbox_inches='tight')
 
 # def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
 #                             imshow_interpolation='nearest', plot_cbar=False, print_ylabel=False,
