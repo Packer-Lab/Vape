@@ -92,10 +92,12 @@ def load_session(pkl_folder=pkl_folder,
 
 class SimpleSession():
     """Class that stores session object in format that's easier to access for decoding analysis"""
-    def __init__(self, sess_type='sens', session_id=0, verbose=1):
+    def __init__(self, sess_type='sens', session_id=0, verbose=1,
+                 shuffle_trial_labels=False):
         self.sess_type = sess_type
         self.session_id = session_id
         self.verbose = verbose 
+        self.shuffle_trial_labels = shuffle_trial_labels
 
         self.SesObj, self.session_name = load_session(sess_type=self.sess_type,
                                 session_id=self.session_id, verbose=self.verbose)
@@ -112,7 +114,6 @@ class SimpleSession():
         self.create_data_objects()
         self.create_full_dataset()
         # self.sort_neurons(sorting_method='normal')
-
 
     def filter_neurons(self, filter_max_abs_dff=True):
         """Filter neurons that should not be used in any analysis. These are:
@@ -203,11 +204,28 @@ class SimpleSession():
         for tt in self.list_tt:
             tt_arr += [tt] * self.all_trials[tt].shape[2]
         tt_arr = np.array(tt_arr)
+        assert len(tt_arr) == full_data.shape[2]
+
+        zscore = True 
+        if zscore:
+            full_data = (full_data - full_data.mean((0, 1))) / full_data.std((0, 1))
+
+        if self.shuffle_trial_labels:
+            random_inds = np.random.permutation(full_data.shape[2])
+            # tt_arr = tt_arr[random_inds]
+            # trial_inds = random_inds
+            trial_inds = np.arange(full_data.shape[2])
+            full_data = full_data[:, :, random_inds]
+            # full_data = np.random.randn(full_data.shape[0], full_data.shape[1], full_data.shape[2])  # totally white noise 
+            if self.verbose > 0:
+                print('WARNING: trials labels are shuffled!')
+        else:
+            trial_inds = np.arange(full_data.shape[2])
 
         data_arr = xr.DataArray(full_data, dims=('neuron', 'time', 'trial'),
                                 coords={'neuron': np.arange(full_data.shape[0]),  #could also do cell id but this is easier i think
                                         'time': self.time_array,
-                                        'trial': np.arange(full_data.shape[2])})
+                                        'trial': trial_inds})
         data_arr.time.attrs['units'] = 's'
         data_arr.neuron.attrs['units'] = '#'
         data_arr.trial.attrs['units'] = '#'
@@ -616,7 +634,16 @@ def plot_raster_sorted_activity(Ses=None, sort_here=False, create_new_time_aggr_
             print('Creating time aggregated data')
         Ses.create_time_averaged_response(sort_neurons=False, region=region,
                                            subtract_pop_av=False)
-    plot_data = Ses.time_aggr_ds.activity.where(Ses.time_aggr_ds.trial_type.isin(plot_trial_type_list), drop=True).data
+    plot_data = Ses.time_aggr_ds.activity.where(Ses.time_aggr_ds.trial_type.isin(plot_trial_type_list), drop=True)
+    print(plot_data)
+    plot_data = plot_data.data
+
+    tt_list = []
+    for tt in Ses.time_aggr_ds.trial_type:
+        if str(tt.data) not in tt_list:
+            tt_list.append(str(tt.data))
+
+    print(tt_list)
 
     if sort_here:
         sorted_inds = Ses.sort_neurons(data=plot_data, sorting_method='euclidean')
@@ -625,7 +652,14 @@ def plot_raster_sorted_activity(Ses=None, sort_here=False, create_new_time_aggr_
     sns.heatmap(plot_data, ax=ax, vmin=-0.5, vmax=0.5, 
                 cmap='BrBG')
     ax.set_xlabel('Trial')
-    ax.set_ylabel('neuron')
+    ax.set_xticks(list(np.arange(2 * len(plot_trial_type_list) + 1) * 50))
+    ax.set_xticklabels(sum([[x * 100, tt_list[x]] for x in range(len(plot_trial_type_list))], []) + [100 * (len(plot_trial_type_list) + 1)], rotation=0)
+    if sort_here:
+        ax.set_ylabel('Neurons (sorted by Eucl. distance')
+    else:
+        ax.set_ylabel('neuron')
+    ax.set_title('Time-averaged data (average of 2 seconds post-stimulus per trial per neuron)')
+    return ax
 
 def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
 
@@ -665,7 +699,8 @@ def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
 def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'random', 'sham'],
                                 merge_trial_types_during_pca=True, verbose=0,
                                 plot_indiv_trials=True, plot_loadings=True,
-                                ax=None, ax_bottom=None, region='s2', t_min=-1, t_max=6, save_fig=False):
+                                ax=None, ax_bottom=None, region='s2', n_pcs=3,
+                                t_min=-1, t_max=6, save_fig=False):
     if ax is None:
         if plot_loadings:
             fig = plt.figure(constrained_layout=False, figsize=(8, 9))
@@ -677,7 +712,6 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
         else:
             fig, ax = plt.subplots(2, 2, figsize=(8, 8), gridspec_kw={'wspace': 0.6, 'hspace': 0.6})
     pc_activity_dict = {}
-    n_pcs = 3
 
     ## PCA calculation:
     if merge_trial_types_during_pca:
@@ -717,10 +751,16 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
             assert pca.components_.shape == (n_pcs, len(selected_ds.neuron))
             for i_tt, tt in enumerate(trial_type_list):
                 current_tt_ds = selected_ds.where(selected_ds.trial_type == tt, drop=True)
+                pca_score_av = pca.score(X=current_tt_ds.mean('trial').activity.data.transpose())
+                print(f'PCA score of {tt} = {pca_score_av}')
                 for i_trial in range(n_trials_per_tt):
+                    pca_score_curr_trial = pca.score(current_tt_ds.activity.isel(trial=i_trial).data.transpose())
+                    print(pca_score_curr_trial)
                     pc_activity_indiv_trials_dict[tt][:, :, i_trial] = np.dot(pca.components_, current_tt_ds.activity.isel(trial=i_trial))
 
+
     else:
+        assert False, 'This is not the correct of doing this PCA analysis, hence i stopped improving it'
         for i_tt, tt in enumerate(trial_type_list):
             selected_ds = Ses.dataset_selector(region=region, min_t=t_min, max_t=t_max,
                                         sort_neurons=False, remove_added_dimensions=True,
@@ -746,7 +786,7 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
 
         i_row = 0
         i_col = 1
-        for i_plot in range(3):
+        for i_plot in range(n_pcs):
             pc_num = i_plot + 1
             curr_ax = ax[i_row, i_col]
         
@@ -779,7 +819,7 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
 
     i_row = 0
     i_col = 1
-    for i_plot in range(3):
+    for i_plot in range(n_pcs):
         pc_num = i_plot + 1
         curr_ax = ax[i_row, i_col]
         despine(curr_ax)
