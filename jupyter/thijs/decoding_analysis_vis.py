@@ -8,7 +8,8 @@ from urllib import response
 import numpy as np 
 import matplotlib.pyplot as plt 
 import seaborn as sns
-import pandas as pd 
+import pandas as pd
+from utils.utils_funcs import correct_s2p_combined 
 import xarray as xr
 import scipy
 from profilehooks import profile, timecall
@@ -93,11 +94,12 @@ def load_session(pkl_folder=pkl_folder,
 class SimpleSession():
     """Class that stores session object in format that's easier to access for decoding analysis"""
     def __init__(self, sess_type='sens', session_id=0, verbose=1,
-                 shuffle_trial_labels=False):
+                 shuffle_trial_labels=False, bool_filter_neurons=True):
         self.sess_type = sess_type
         self.session_id = session_id
         self.verbose = verbose 
         self.shuffle_trial_labels = shuffle_trial_labels
+        self.bool_filter_neurons = bool_filter_neurons
 
         self.SesObj, self.session_name = load_session(sess_type=self.sess_type,
                                 session_id=self.session_id, verbose=self.verbose)
@@ -110,7 +112,7 @@ class SimpleSession():
 
         self.sorted_inds_neurons = None  # default 
 
-        self.filter_neurons(filter_max_abs_dff=True)
+        self.filter_neurons(filter_max_abs_dff=self.bool_filter_neurons)
         self.create_data_objects()
         self.create_full_dataset()
         # self.sort_neurons(sorting_method='normal')
@@ -197,7 +199,7 @@ class SimpleSession():
 
             self.stim_dur[self._key_dict[tt]] = getattr(self.SesObj, tt).stim_dur
 
-    def create_full_dataset(self):
+    def create_full_dataset(self, zscore=False):
         full_data = np.concatenate([self.all_trials[tt] for tt in self.list_tt], axis=2)  # concat across trials 
         assert full_data.shape[0] == self.n_neurons and full_data.shape[1] == self.n_timepoints 
         tt_arr = []
@@ -206,9 +208,14 @@ class SimpleSession():
         tt_arr = np.array(tt_arr)
         assert len(tt_arr) == full_data.shape[2]
 
-        zscore = True 
         if zscore:
             full_data = (full_data - full_data.mean((0, 1))) / full_data.std((0, 1))
+            print('WARNING: z-scoring messes up the baselining (that average pre-stim activity =0)')
+        else:
+            ## assert baselining is as expected
+            baseline_frames = self.SesObj.spont.pre_frames  # same for any trial type
+            assert np.abs(full_data[:, :baseline_frames, :].mean()) < 1e-8  # mean across neurons and pre-stim time points and trials
+            assert np.max(np.abs(full_data[:, :baseline_frames, :].mean((0, 1)))) < 1e-8  # mean across neurons and pre-stim time points
 
         if self.shuffle_trial_labels:
             random_inds = np.random.permutation(full_data.shape[2])
@@ -257,7 +264,6 @@ class SimpleSession():
         self.full_ds.where(tmp.full_ds.neuron == 50, drop=True)  # dito 
         self.full_ds.where(tmp_full_ds.trial_type.isin(['sensory', 'random']), drop=True)  # use da.isin for multipel value checking
         """
-
         if deepcopy:
             tmp_data = self.full_ds.copy(deep=True)
         else:
@@ -268,7 +274,8 @@ class SimpleSession():
                 tmp_data = tmp_data.where(tmp_data.cell_s1, drop=True)
             elif region == 's2':
                 tmp_data = tmp_data.where(np.logical_not(tmp_data.cell_s1), drop=True)
-                
+
+        ## TODO; speed up time selection   
         if min_t is not None:
             tmp_data = tmp_data.where(tmp_data.time >= min_t, drop=True)
         if max_t is not None:
@@ -841,6 +848,90 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
 
     if save_fig:
         plt.savefig(f'/home/tplas/repos/Vape/jupyter/thijs/figs/pca_activity__{Ses.sess_type}__{Ses.session_name_readable}_{region.upper()}.pdf', bbox_inches='tight')
+
+def manual_poststim_response_classifier(Ses, region='s2', tt_1='sensory', tt_2='sham',
+                                        t_min=1, t_max=3, time_aggr_method='average',
+                                        n_shuffles=5000, verbose=1, plot_hist=True, ax=None):    
+    tt_list = [tt_1, tt_2]
+    assert len(tt_list) == 2, 'multi classification not implemented'
+
+    ## Get data
+    ds = Ses.dataset_selector(region=region, remove_added_dimensions=True,
+                              min_t=t_min, max_t=t_max,
+                            sort_neurons=False, trial_type_list=tt_list)
+    n_trials_per_tt = 100
+    tmp_data_dict = {}
+    time_av_responses_dict = {}
+    for i_tt, tt in enumerate(tt_list):
+        tmp_data_dict[tt] = ds.activity.where(ds.trial_type == tt, drop=True).mean('neuron').data.transpose()
+        if time_aggr_method == 'average':
+            time_av_responses_dict[tt] = tmp_data_dict[tt][:, :].mean(1)
+        else:
+            assert False, 'no other aggretation method than average implemented'
+        assert len(time_av_responses_dict[tt]) == 100
+
+    ## Get real classification performance
+    mean_response_per_tt_dict = {tt: time_av_responses_dict[tt].mean() for tt in tt_list}
+    threshold = 0.5 * (mean_response_per_tt_dict[tt_list[0]] + mean_response_per_tt_dict[tt_list[1]])
+    correct_classification_dict = {}
+    for tt in tt_list:
+        if mean_response_per_tt_dict[tt] > threshold:
+            correct_classification_dict[tt] = time_av_responses_dict[tt] > threshold 
+        else:
+            correct_classification_dict[tt] = time_av_responses_dict[tt] < threshold 
+        if verbose > 0:
+            print(f'Number of correctly classified trials of {tt}: {np.sum(correct_classification_dict[tt])}')
+
+    ## Shuffled classification performance:
+    n_correct_class_shuffled_dict = {tt: np.zeros(n_shuffles) for tt in tt_list}
+    all_responses = np.concatenate([time_av_responses_dict[tt] for tt in tt_list], axis=0)
+    assert len(all_responses) == len(tt_list) * n_trials_per_tt
+    for i_shuf in range(n_shuffles):
+        random_trial_inds = np.random.permutation(len(all_responses))
+        shuffled_responses_all = all_responses[random_trial_inds]
+        shuffled_responses_1 = shuffled_responses_all[:n_trials_per_tt]
+        shuffled_responses_2 = shuffled_responses_all[n_trials_per_tt:]
+        mean_1, mean_2 = shuffled_responses_1.mean(), shuffled_responses_2.mean()
+        threshold = 0.5 * (mean_1 + mean_2)
+        if mean_1 > threshold:
+            correct_sh_resp_1 = shuffled_responses_1 > threshold
+            correct_sh_resp_2 = shuffled_responses_2 < threshold
+        else:
+            correct_sh_resp_1 = shuffled_responses_1 < threshold
+            correct_sh_resp_2 = shuffled_responses_2 > threshold
+        n_correct_class_shuffled_dict[tt_list[0]][i_shuf] = np.sum(correct_sh_resp_1)
+        n_correct_class_shuffled_dict[tt_list[1]][i_shuf] = np.sum(correct_sh_resp_2)
+            
+    ## Compute p value using two sided z test
+    n_cor_real_dict, p_val_dict = {}, {}
+    for tt in tt_list:
+        n_cor_real_dict[tt] = np.sum(correct_classification_dict[tt])
+        mean_n_cor_sh = np.mean(n_correct_class_shuffled_dict[tt])
+        std_n_cor_sh = np.std(n_correct_class_shuffled_dict[tt])
+        zscore_n_cor = (n_cor_real_dict[tt] - mean_n_cor_sh) / std_n_cor_sh
+        p_val_dict[tt] = scipy.stats.norm.sf(np.abs(zscore_n_cor)) * 2
+        if verbose > 0:
+            print(f'Two-sided p value of {tt} = {p_val_dict[tt]}')
+
+    ## Plot
+    if plot_hist:
+        if ax is None:
+            ax = plt.subplot(111)
+        hist_n ,_, __ = ax.hist([n_correct_class_shuffled_dict[tt_list[x]] for x in range(2)], 
+                    bins=np.arange(40, 70, 1), 
+                    density=True, label=tt_list, color=[colour_tt_dict[tt] for tt in tt_list])
+        ax.set_xlabel('percentage correctly classified trials')
+        ax.set_ylabel('PDF')
+        ax.set_title(f'Distr. of correctly classified SHUFFLED trials\nN_bootstrap={n_shuffles}, {region.upper()}, {Ses.session_name_readable}')
+        despine(ax)
+        max_vals = np.max(np.array([np.max(hist_n[x]) for x in range(2)]))
+        for i_tt, tt in enumerate(tt_list): 
+            ax.text(s=u"\u2193" + f' (P = {np.round(p_val_dict[tt], 3)})', 
+                    x=n_cor_real_dict[tt], y=max_vals * (1 + 0.1 * (i_tt + 1)),
+                    fontdict={'ha': 'left', 'color': colour_tt_dict[tt], 'weight': 'bold'})
+        ax.set_ylim([0, max_vals * 1.3])
+
+
 
 # def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
 #                             imshow_interpolation='nearest', plot_cbar=False, print_ylabel=False,
