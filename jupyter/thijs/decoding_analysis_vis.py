@@ -3,21 +3,6 @@
 
 from json import decoder
 import os, sys, pickle
-from select import select
-from urllib import response
-import numpy as np 
-import matplotlib.pyplot as plt 
-import seaborn as sns
-import pandas as pd
-from utils.utils_funcs import correct_s2p_combined 
-import xarray as xr
-import scipy
-from profilehooks import profile, timecall
-import sklearn.discriminant_analysis, sklearn.model_selection, sklearn.decomposition
-
-## From Vape:
-# import utils.ia_funcs as ia 
-# import utils.utils_funcs as uf
 
 ## Data paths, from 'rob_setup_notebook.ipynb'
 vape_path = '/home/tplas/repos/Vape/'
@@ -30,6 +15,22 @@ master_path = os.path.join(qnap_path, 'master_pkl', 'master_obj.pkl')
 fig_save_path = os.path.join(qnap_path, 'Analysis', 'Figures')
 stam_save_path = os.path.join(qnap_path, 'Analysis', 'STA_movies')
 s2_borders_path = os.path.join(qnap_path, 'Analysis', 'S2_borders')
+
+from select import select
+from urllib import response
+import numpy as np 
+import matplotlib.pyplot as plt 
+import seaborn as sns
+import pandas as pd
+# from utils.utils_funcs import correct_s2p_combined 
+import xarray as xr
+import scipy
+from profilehooks import profile, timecall
+import sklearn.discriminant_analysis, sklearn.model_selection, sklearn.decomposition
+
+## From Vape:
+# import utils.ia_funcs as ia 
+# import utils.utils_funcs as uf
 
 sess_type_dict = {'sens': 'sensory_2sec_test',
                   'proj': 'projection_2sec_test'}
@@ -94,10 +95,12 @@ def load_session(pkl_folder=pkl_folder,
 class SimpleSession():
     """Class that stores session object in format that's easier to access for decoding analysis"""
     def __init__(self, sess_type='sens', session_id=0, verbose=1,
-                 shuffle_trial_labels=False, bool_filter_neurons=True):
+                 shuffle_trial_labels=False, shuffle_timepoints=False, 
+                 bool_filter_neurons=True):
         self.sess_type = sess_type
         self.session_id = session_id
         self.verbose = verbose 
+        self.shuffle_timepoints = shuffle_timepoints
         self.shuffle_trial_labels = shuffle_trial_labels
         self.bool_filter_neurons = bool_filter_neurons
 
@@ -229,6 +232,15 @@ class SimpleSession():
         else:
             trial_inds = np.arange(full_data.shape[2])
 
+        if self.shuffle_timepoints:
+            n_trials = full_data.shape[2]
+            for it in range(n_trials):
+                random_tp_inds = np.random.permutation(full_data.shape[1])
+                for ineuron in range(full_data.shape[0]):
+                    full_data[ineuron, :, it] = full_data[ineuron, :, it][random_tp_inds]
+            if self.verbose > 0:
+                print('WARNING: time points are shuffled per trial')
+
         data_arr = xr.DataArray(full_data, dims=('neuron', 'time', 'trial'),
                                 coords={'neuron': np.arange(full_data.shape[0]),  #could also do cell id but this is easier i think
                                         'time': self.time_array,
@@ -309,13 +321,17 @@ class SimpleSession():
             if self.sorted_inds_neurons is None or reset_sort:
                 if self.verbose > 0:
                     print('sorting neurons')
-                _ = self.sort_neurons(data=tmp_data.activity.data.mean(2), sorting_method='correlation')
+                assert tmp_data.activity.data.mean(2).shape[0] == len(tmp_data.neuron)
+                sorting, _ = self.sort_neurons(data=tmp_data.activity.data.mean(2), sorting_method='correlation')
+                assert len(sorting) == len(tmp_data.neuron)
+                assert len(sorting) == len(self.sorted_inds_neurons)
+                assert len(sorting) == len(self.sorted_inds_neurons_inverse)
             tmp_data = tmp_data.assign(sorting_neuron_indices=('neuron', self.sorted_inds_neurons_inverse))  # add sorted indices on neuron dim
             tmp_data = tmp_data.sortby(tmp_data.sorting_neuron_indices)
 
         return tmp_data
 
-    def sort_neurons(self, data=None, sorting_method='sum'):
+    def sort_neurons(self, data=None, sorting_method='sum', save_sorting=True):
         """from pop off"""
         if data is None:
             print('WARNING; using pre-specified data for sorting')
@@ -346,12 +362,13 @@ class SimpleSession():
             sorting = np.argsort(sum_data)[::-1]
         if self.verbose > 0:
             print(f'Neurons sorted by {sorting_method}')
-        self.sorted_inds_neurons = sorting
         tmp_rev_sort = np.zeros_like(sorting)
         for old_ind, new_ind in enumerate(sorting):
             tmp_rev_sort[new_ind] = old_ind
-        self.sorted_inds_neurons_inverse = tmp_rev_sort
-        return sorting
+        if save_sorting:
+            self.sorted_inds_neurons = sorting
+            self.sorted_inds_neurons_inverse = tmp_rev_sort
+        return sorting, tmp_rev_sort
 
     def create_time_averaged_response(self, t_min=0.4, t_max=2, 
                         region=None, aggregation_method='average',
@@ -547,7 +564,20 @@ def despine(ax):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
-def plot_pop_av(Ses=None, ax_list=None, region_list=['s2']):
+def create_time_axis(ax, time_arr, axis='x', label_list=[-2, 0, 2, 4, 6, 8, 10], rotation=0):
+    '''Works with heatmap, where len(time_arr) is the number of data points on that axis.
+    Not sure how to capture this in an assert.. ?'''
+    if axis == 'x':
+        ax.set_xticks([np.argmin(np.abs(time_arr - x)) for x in label_list])
+        ax.set_xticklabels(label_list, rotation=rotation);
+    elif axis == 'y':
+        ax.set_yticks([np.argmin(np.abs(time_arr - x)) for x in label_list])
+        ax.set_yticklabels(label_list, rotation=rotation);
+    else:
+        print(f'WARNING: axis {axis} not recognised when creating time axis')
+
+
+def plot_pop_av(Ses=None, ax_list=None, region_list=['s2'], sort_trials_per_tt=False):
     pop_act_dict = {}
     if ax_list is None:
         fig, ax = plt.subplots(len(region_list), len(Ses.list_tt), 
@@ -561,7 +591,21 @@ def plot_pop_av(Ses=None, ax_list=None, region_list=['s2']):
         for i_tt, tt in enumerate(Ses.list_tt):
             pop_act_dict[tt] = Ses.dataset_selector(region=region, trial_type_list=[tt], 
                                     remove_added_dimensions=True, sort_neurons=False)
-            pop_act_dict[tt].activity.mean('neuron').transpose().plot(ax=ax_row[i_tt], vmin=-0.5)
+            plot_data = pop_act_dict[tt].activity.mean('neuron').transpose()
+            if sort_trials_per_tt:
+                sorting, _ = Ses.sort_neurons(data=plot_data.data, save_sorting=False)  # hijack this function, don't save in class
+                time_ax = plot_data.time.data
+                plot_data = plot_data.data[sorting, :]  # trials sorted 
+                sns.heatmap(plot_data, ax=ax_row[i_tt], vmin=-0.5, vmax=0.5, cmap='BrBG',
+                            cbar_kws={'label': 'activity'})
+                ax_row[i_tt].set_xlabel('time [s]')
+                ax_row[i_tt].set_ylabel('sorted trials [#]')
+                # ax_row[i_tt].inverse_yaxis()
+                xtl = [-2, 0, 2, 4, 6, 8, 10]
+                ax_row[i_tt].set_xticks([np.argmin(np.abs(time_ax - x)) for x in xtl])
+                ax_row[i_tt].set_xticklabels(xtl, rotation=0)
+            else:
+                plot_data.plot(ax=ax_row[i_tt], vmin=-0.5)
             ax_row[i_tt].set_title(f'{tt} {region} population average')
 
 def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True,
@@ -653,7 +697,7 @@ def plot_raster_sorted_activity(Ses=None, sort_here=False, create_new_time_aggr_
     print(tt_list)
 
     if sort_here:
-        sorted_inds = Ses.sort_neurons(data=plot_data, sorting_method='euclidean')
+        sorted_inds, _ = Ses.sort_neurons(data=plot_data, sorting_method='euclidean')
         # print(sorted_inds)
         plot_data = plot_data[sorted_inds, :]
     sns.heatmap(plot_data, ax=ax, vmin=-0.5, vmax=0.5, 
@@ -705,7 +749,7 @@ def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
         
 def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'random', 'sham'],
                                 merge_trial_types_during_pca=True, verbose=0,
-                                plot_indiv_trials=True, plot_loadings=True,
+                                plot_ci=True, plot_indiv_trials=False, plot_loadings=True,
                                 ax=None, ax_bottom=None, region='s2', n_pcs=3,
                                 t_min=-1, t_max=6, save_fig=False):
     if ax is None:
@@ -751,7 +795,7 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
         for i_tt, tt in enumerate(trial_type_list):  ## (we know order is same because of earlier assert)
             pc_activity_dict[tt] = pc_activity[:, (i_tt * n_timepoints_per_trial):((i_tt + 1) * n_timepoints_per_trial)]
 
-        if plot_indiv_trials:
+        if plot_ci:
             n_trials_per_tt = 100
             assert len(selected_ds.trial) == int(n_trials_per_tt * len(trial_type_list))
             pc_activity_indiv_trials_dict = {tt: np.zeros((n_pcs, n_timepoints_per_trial, n_trials_per_tt)) for tt in trial_type_list}
@@ -759,10 +803,12 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
             for i_tt, tt in enumerate(trial_type_list):
                 current_tt_ds = selected_ds.where(selected_ds.trial_type == tt, drop=True)
                 pca_score_av = pca.score(X=current_tt_ds.mean('trial').activity.data.transpose())
-                print(f'PCA score of {tt} = {pca_score_av}')
+                if verbose > 1:
+                    print(f'PCA score of {tt} = {pca_score_av}')
                 for i_trial in range(n_trials_per_tt):
                     pca_score_curr_trial = pca.score(current_tt_ds.activity.isel(trial=i_trial).data.transpose())
-                    print(pca_score_curr_trial)
+                    if verbose > 1:
+                        print(pca_score_curr_trial)
                     pc_activity_indiv_trials_dict[tt][:, :, i_trial] = np.dot(pca.components_, current_tt_ds.activity.isel(trial=i_trial))
 
 
@@ -791,6 +837,11 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
         ax[0, 0].plot(pc_activity_dict[tt][0, :], pc_activity_dict[tt][1, :], marker='o',
                         color=colour_tt_dict[tt], linewidth=2, label=tt, linestyle='-')
 
+        if plot_indiv_trials:
+            indiv_activity_time_av = pc_activity_indiv_trials_dict[tt][:, 45:75, :].mean(1)  # pcs x time points x trials
+            ax[0, 0].scatter(indiv_activity_time_av[0, :], indiv_activity_time_av[1, :],
+                             marker='x', c=colour_tt_dict[tt])
+
         i_row = 0
         i_col = 1
         for i_plot in range(n_pcs):
@@ -800,7 +851,7 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
             curr_ax.plot(selected_ds_av.time, pc_activity_dict[tt][i_plot, :],
                             color=colour_tt_dict[tt], linewidth=2, label=f'EV {str(np.round(expl_var[i_plot], 3))}')
 
-            if plot_indiv_trials:
+            if plot_ci:
                 indiv_activity = pc_activity_indiv_trials_dict[tt][i_plot, :, :]
                 ci = np.std(indiv_activity, 1) * 1.96 / np.sqrt(indiv_activity.shape[1])
                 curr_ax.fill_between(selected_ds_av.time, pc_activity_dict[tt][i_plot, :] - ci, 
@@ -850,7 +901,7 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
         plt.savefig(f'/home/tplas/repos/Vape/jupyter/thijs/figs/pca_activity__{Ses.sess_type}__{Ses.session_name_readable}_{region.upper()}.pdf', bbox_inches='tight')
 
 def manual_poststim_response_classifier(Ses, region='s2', tt_1='sensory', tt_2='sham',
-                                        t_min=1, t_max=3, time_aggr_method='average',
+                                        t_min=1, t_max=2, time_aggr_method='average',
                                         n_shuffles=5000, verbose=1, plot_hist=True, ax=None):    
     tt_list = [tt_1, tt_2]
     assert len(tt_list) == 2, 'multi classification not implemented'
@@ -931,6 +982,20 @@ def manual_poststim_response_classifier(Ses, region='s2', tt_1='sensory', tt_2='
                     fontdict={'ha': 'left', 'color': colour_tt_dict[tt], 'weight': 'bold'})
         ax.set_ylim([0, max_vals * 1.3])
 
+def plot_cross_temp_corr(ds, ax=None, name=''):
+    n_trials = len(ds.trial)
+    tmpcor = np.stack([np.corrcoef(ds.activity.isel(trial=x).data.transpose()) for x in range(n_trials)])
+    meancor = tmpcor.mean(0)
+
+    if ax is None:
+        ax = plt.subplot(111)
+    sns.heatmap(meancor, ax=ax, cmap=sns.color_palette("cubehelix", as_cmap=True), vmax=0.5, vmin=0)
+    create_time_axis(ax=ax, time_arr=ds.time.data, axis='x')
+    create_time_axis(ax=ax, time_arr=ds.time.data, axis='y')
+    ax.invert_yaxis()
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Time (s)')
+    ax.set_title(f'Mean cross-temporal correlation across {n_trials} {name} trials')
 
 
 # def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
