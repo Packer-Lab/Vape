@@ -96,12 +96,14 @@ class SimpleSession():
     """Class that stores session object in format that's easier to access for decoding analysis"""
     def __init__(self, sess_type='sens', session_id=0, verbose=1,
                  shuffle_trial_labels=False, shuffle_timepoints=False, 
+                 shuffle_all_data=False,
                  bool_filter_neurons=True):
         self.sess_type = sess_type
         self.session_id = session_id
         self.verbose = verbose 
         self.shuffle_timepoints = shuffle_timepoints
         self.shuffle_trial_labels = shuffle_trial_labels
+        self.shuffle_all_data = shuffle_all_data
         self.bool_filter_neurons = bool_filter_neurons
 
         self.SesObj, self.session_name = load_session(sess_type=self.sess_type,
@@ -221,12 +223,13 @@ class SimpleSession():
             assert np.max(np.abs(full_data[:, :baseline_frames, :].mean((0, 1)))) < 1e-8  # mean across neurons and pre-stim time points
 
         if self.shuffle_trial_labels:
-            random_inds = np.random.permutation(full_data.shape[2])
-            # tt_arr = tt_arr[random_inds]
-            # trial_inds = random_inds
+            # random_inds = np.random.permutation(full_data.shape[2])
             trial_inds = np.arange(full_data.shape[2])
-            full_data = full_data[:, :, random_inds]
-            # full_data = np.random.randn(full_data.shape[0], full_data.shape[1], full_data.shape[2])  # totally white noise 
+            # full_data = full_data[:, :, random_inds]
+            # for ineuron in range(full_data.shape[0]):
+            for itp in range(full_data.shape[1]):
+                random_trial_inds = np.random.permutation(full_data.shape[2])
+                full_data[:, itp, :] = full_data[:, itp, :][:, random_trial_inds]
             if self.verbose > 0:
                 print('WARNING: trials labels are shuffled!')
         else:
@@ -236,10 +239,23 @@ class SimpleSession():
             n_trials = full_data.shape[2]
             for it in range(n_trials):
                 random_tp_inds = np.random.permutation(full_data.shape[1])
-                for ineuron in range(full_data.shape[0]):
-                    full_data[ineuron, :, it] = full_data[ineuron, :, it][random_tp_inds]
+                full_data[:, :, it] = full_data[:, random_tp_inds, it]
+            # for it in range(n_trials):
+            #     random_neuron_inds = np.random.permutation(full_data.shape[0])
+            #     full_data[:, :, it] = full_data[random_neuron_inds, :, it]
+                # random_tp_inds = np.random.permutation(full_data.shape[1])
+                # full_data[:, :, it] = full_data[:, random_tp_inds, it]
             if self.verbose > 0:
                 print('WARNING: time points are shuffled per trial')
+
+        if self.shuffle_all_data:
+            full_data_shape = full_data.shape 
+            full_data = full_data.ravel()
+            np.random.shuffle(full_data)
+            full_data = full_data.reshape(full_data_shape)
+            # full_data = np.random.randn(full_data.shape[0], full_data.shape[1], full_data.shape[2])  # totally white noise 
+
+            print('WARNING: all data points shuffled!')
 
         data_arr = xr.DataArray(full_data, dims=('neuron', 'time', 'trial'),
                                 coords={'neuron': np.arange(full_data.shape[0]),  #could also do cell id but this is easier i think
@@ -577,12 +593,19 @@ def create_time_axis(ax, time_arr, axis='x', label_list=[-2, 0, 2, 4, 6, 8, 10],
         print(f'WARNING: axis {axis} not recognised when creating time axis')
 
 
-def plot_pop_av(Ses=None, ax_list=None, region_list=['s2'], sort_trials_per_tt=False):
+def plot_pop_av(Ses=None, ax_list=None, region_list=['s2'], sort_trials_per_tt=False,
+                plot_trial_av=False):
     pop_act_dict = {}
     if ax_list is None:
-        fig, ax = plt.subplots(len(region_list), len(Ses.list_tt), 
-                                figsize=(len(Ses.list_tt) * 5, 3 * len(region_list)),
-                                gridspec_kw={'wspace': 0.6, 'hspace': 0.5})
+        if plot_trial_av:
+            fig, ax = plt.subplots(2 * len(region_list), len(Ses.list_tt), 
+                                    figsize=(len(Ses.list_tt) * 5, 6 * len(region_list)),
+                                    gridspec_kw={'wspace': 0.6, 'hspace': 0.5})
+
+        else:   
+            fig, ax = plt.subplots(len(region_list), len(Ses.list_tt), 
+                                    figsize=(len(Ses.list_tt) * 5, 3 * len(region_list)),
+                                    gridspec_kw={'wspace': 0.6, 'hspace': 0.5})
     for i_r, region in enumerate(region_list):
         if len(region_list) > 1:
             ax_row = ax[i_r]
@@ -607,6 +630,18 @@ def plot_pop_av(Ses=None, ax_list=None, region_list=['s2'], sort_trials_per_tt=F
             else:
                 plot_data.plot(ax=ax_row[i_tt], vmin=-0.5)
             ax_row[i_tt].set_title(f'{tt} {region} population average')
+            if plot_trial_av:
+                if sort_trials_per_tt:
+                    pass
+                else:
+                    plot_data = plot_data.data
+                ax_av = ax[i_r + 2, i_tt]
+                ax_av.plot(time_ax, plot_data.mean(0), c=colour_tt_dict[tt], linewidth=2)
+                ax_av.set_xlabel('Time (s)')
+                ax_av.set_ylabel('Trial-av, pop-av DF/F')
+                ax_av.set_title(f'{tt} {region} trial-average')
+                despine(ax_av)
+    plt.suptitle(f'Session {Ses.session_name_readable}')
 
 def plot_hist_discr(Ses=None, ax=None, max_dprime=None, plot_density=True,
                     plot_shuffled=True, yscale_log=False, show_all_shuffled=False,
