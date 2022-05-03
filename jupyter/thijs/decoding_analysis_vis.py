@@ -27,6 +27,7 @@ import xarray as xr
 import scipy
 from profilehooks import profile, timecall
 import sklearn.discriminant_analysis, sklearn.model_selection, sklearn.decomposition
+from tqdm import tqdm
 
 ## From Vape:
 # import utils.ia_funcs as ia 
@@ -96,7 +97,7 @@ class SimpleSession():
     """Class that stores session object in format that's easier to access for decoding analysis"""
     def __init__(self, sess_type='sens', session_id=0, verbose=1,
                  shuffle_trial_labels=False, shuffle_timepoints=False, 
-                 shuffle_all_data=False,
+                 shuffle_all_data=False, prestim_baseline=True,
                  bool_filter_neurons=True):
         self.sess_type = sess_type
         self.session_id = session_id
@@ -105,6 +106,7 @@ class SimpleSession():
         self.shuffle_trial_labels = shuffle_trial_labels
         self.shuffle_all_data = shuffle_all_data
         self.bool_filter_neurons = bool_filter_neurons
+        self.prestim_baseline = prestim_baseline
 
         self.SesObj, self.session_name = load_session(sess_type=self.sess_type,
                                 session_id=self.session_id, verbose=self.verbose)
@@ -119,7 +121,8 @@ class SimpleSession():
 
         self.filter_neurons(filter_max_abs_dff=self.bool_filter_neurons)
         self.create_data_objects()
-        self.create_full_dataset()
+        self.create_nonbaselinsed_alltrials_object()
+        self.create_full_dataset(prestim_baseline=self.prestim_baseline)
         # self.sort_neurons(sorting_method='normal')
 
     def filter_neurons(self, filter_max_abs_dff=True):
@@ -204,12 +207,15 @@ class SimpleSession():
 
             self.stim_dur[self._key_dict[tt]] = getattr(self.SesObj, tt).stim_dur
 
-    def create_full_dataset(self, zscore=False):
-        full_data = np.concatenate([self.all_trials[tt] for tt in self.list_tt], axis=2)  # concat across trials 
+    def create_full_dataset(self, zscore=False, prestim_baseline=True):
+        if prestim_baseline:
+            full_data = np.concatenate([self.all_trials[tt] for tt in self.list_tt], axis=2)  # concat across trials 
+        else:
+            full_data = np.concatenate([self.all_trials_nonbaselined[tt] for tt in self.list_tt], axis=2)  # concat across trials 
         assert full_data.shape[0] == self.n_neurons and full_data.shape[1] == self.n_timepoints 
         tt_arr = []
         for tt in self.list_tt:
-            tt_arr += [tt] * self.all_trials[tt].shape[2]
+            tt_arr += [tt] * self.all_trials[tt].shape[2]  # same shape as all_trials_nonbaselined (assert in creation function)
         tt_arr = np.array(tt_arr)
         assert len(tt_arr) == full_data.shape[2]
 
@@ -217,10 +223,11 @@ class SimpleSession():
             full_data = (full_data - full_data.mean((0, 1))) / full_data.std((0, 1))
             print('WARNING: z-scoring messes up the baselining (that average pre-stim activity =0)')
         else:
-            ## assert baselining is as expected
-            baseline_frames = self.SesObj.spont.pre_frames  # same for any trial type
-            assert np.abs(full_data[:, :baseline_frames, :].mean()) < 1e-8  # mean across neurons and pre-stim time points and trials
-            assert np.max(np.abs(full_data[:, :baseline_frames, :].mean((0, 1)))) < 1e-8  # mean across neurons and pre-stim time points
+            if prestim_baseline:
+                ## assert baselining is as expected
+                baseline_frames = self.SesObj.spont.pre_frames  # same for any trial type
+                assert np.abs(full_data[:, :baseline_frames, :].mean()) < 1e-8  # mean across neurons and pre-stim time points and trials
+                assert np.max(np.abs(full_data[:, :baseline_frames, :].mean((0, 1)))) < 1e-8  # mean across neurons and pre-stim time points
 
         if self.shuffle_trial_labels:
             # random_inds = np.random.permutation(full_data.shape[2])
@@ -553,7 +560,57 @@ class SimpleSession():
 
         return score_arr
 
-        ##################{'whisker': array([0.94 , 0.615, 0.81 , 0.83 , 0.905, 0.665]), 'sensory': array([0.56 , 0.49 , 0.515, 0.62 , 0.505, 0.575]), 'random': array([0.5  , 0.41 , 0.5  , 0.5  , 0.49 , 0.485])}
+    def assert_normalisation_procedure(self, tt='sensory'):
+        '''This function just does some asserts that show how Rob has done the
+        baseline normalization of trials in his pre-processing.'''
+
+        assert tt in self.list_tt, f'choose a trial type that is in {self.list_tt}'
+
+        original_obj = getattr(self.SesObj, {v: k for k, v in self._key_dict.items()}[tt])
+        trial_start_frames = original_obj.stim_start_frames[0]
+        n_trials = 100
+
+        for i_trial in tqdm(range(n_trials)):
+            #dfof[0] because of first (and only) imaging plane
+            assert len(original_obj.dfof) == 1
+            nonnorm_trial = original_obj.dfof[0][:, (trial_start_frames[i_trial] - original_obj.pre_frames):(trial_start_frames[i_trial] + original_obj.post_frames)]
+            nonnorm_trial = nonnorm_trial[self._mask_neurons_keep, :]  # filter neurons
+
+            ## perform baselining that is in interareal_analysis.interarealAnalysis._baselineFluTrial()
+            baseline_activity = np.mean(nonnorm_trial[:, :original_obj.pre_frames], axis=1)  # mean per neuron across pre-stim time points
+            baseline_activity_stack = np.repeat(baseline_activity, nonnorm_trial.shape[1]).reshape(nonnorm_trial.shape)  # Rob stacks instead of broadcasts
+            newlynorm_trial = nonnorm_trial - baseline_activity_stack  # subtract baseline
+            newlynorm_trial[:, original_obj.pre_frames:(original_obj.pre_frames + original_obj.duration_frames)] = 0  # set artefact frames to zero
+
+            ## two different ways of getting the normalized data
+            norm_trial_1 = self.all_trials[tt][:, :, i_trial]  # first, as saved in robs object
+            norm_trial_2 = self.full_ds.where(self.full_ds.trial_type == tt, drop=True).isel(trial=i_trial).activity.data  # second, as I extract them
+            assert (norm_trial_1 == norm_trial_2).all()  # ensure they are exactly equal
+            
+            ## Assert that Robs normalized trials are equal to how I normalise them in this function:
+            assert norm_trial_1.shape == nonnorm_trial.shape
+            assert norm_trial_1.shape == newlynorm_trial.shape
+            assert np.isclose(newlynorm_trial - norm_trial_1, 0, atol=1e-6).all(), np.abs((newlynorm_trial - norm_trial_1)).max()  # do it like this in case of float error
+
+        print('All tests passed without issues!')
+
+    def create_nonbaselinsed_alltrials_object(self):
+        
+        self.all_trials_nonbaselined = {}
+        for tt in self.list_tt:
+            original_obj = getattr(self.SesObj, {v: k for k, v in self._key_dict.items()}[tt])
+            trial_start_frames = original_obj.stim_start_frames[0]
+            n_trials = self.all_trials[tt].shape[2]
+            self.all_trials_nonbaselined[tt] = np.zeros_like(self.all_trials[tt])
+
+            for i_trial in range(n_trials):
+                #dfof[0] because of first (and only) imaging plane
+                assert len(original_obj.dfof) == 1
+                nonnorm_trial = original_obj.dfof[0][:, (trial_start_frames[i_trial] - original_obj.pre_frames):(trial_start_frames[i_trial] + original_obj.post_frames)]
+                nonnorm_trial = nonnorm_trial[self._mask_neurons_keep, :]  # filter neurons
+                nonnorm_trial[:, original_obj.pre_frames:(original_obj.pre_frames + original_obj.duration_frames)] = 0  # set artefact to zero
+                self.all_trials_nonbaselined[tt][:, :, i_trial] = nonnorm_trial
+            # self.all_trials_nonbaselined[tt] = self.all_trials_nonbaselined[tt][self._mask_neurons_keep, :, :]
 
 def shuffle_along_axis(a, axis):
     ## https://stackoverflow.com/questions/5040797/shuffling-numpy-array-along-a-given-axis
@@ -615,20 +672,20 @@ def plot_pop_av(Ses=None, ax_list=None, region_list=['s2'], sort_trials_per_tt=F
             pop_act_dict[tt] = Ses.dataset_selector(region=region, trial_type_list=[tt], 
                                     remove_added_dimensions=True, sort_neurons=False)
             plot_data = pop_act_dict[tt].activity.mean('neuron').transpose()
+            time_ax = plot_data.time.data
             if sort_trials_per_tt:
                 sorting, _ = Ses.sort_neurons(data=plot_data.data, save_sorting=False)  # hijack this function, don't save in class
-                time_ax = plot_data.time.data
                 plot_data = plot_data.data[sorting, :]  # trials sorted 
-                sns.heatmap(plot_data, ax=ax_row[i_tt], vmin=-0.5, vmax=0.5, cmap='BrBG',
-                            cbar_kws={'label': 'activity'})
-                ax_row[i_tt].set_xlabel('time [s]')
                 ax_row[i_tt].set_ylabel('sorted trials [#]')
-                # ax_row[i_tt].inverse_yaxis()
-                xtl = [-2, 0, 2, 4, 6, 8, 10]
-                ax_row[i_tt].set_xticks([np.argmin(np.abs(time_ax - x)) for x in xtl])
-                ax_row[i_tt].set_xticklabels(xtl, rotation=0)
             else:
-                plot_data.plot(ax=ax_row[i_tt], vmin=-0.5)
+                ax_row[i_tt].set_ylabel('trials [#]')
+            
+            sns.heatmap(plot_data, ax=ax_row[i_tt], vmin=-0.5, vmax=0.5, cmap='BrBG',
+                        cbar_kws={'label': 'activity'})
+            ax_row[i_tt].set_xlabel('time [s]')
+            xtl = [-2, 0, 2, 4, 6, 8, 10]
+            ax_row[i_tt].set_xticks([np.argmin(np.abs(time_ax - x)) for x in xtl])
+            ax_row[i_tt].set_xticklabels(xtl, rotation=0)
             ax_row[i_tt].set_title(f'{tt} {region} population average')
             if plot_trial_av:
                 if sort_trials_per_tt:
@@ -1017,6 +1074,8 @@ def manual_poststim_response_classifier(Ses, region='s2', tt_1='sensory', tt_2='
                     fontdict={'ha': 'left', 'color': colour_tt_dict[tt], 'weight': 'bold'})
         ax.set_ylim([0, max_vals * 1.3])
 
+    return p_val_dict
+    
 def plot_cross_temp_corr(ds, ax=None, name=''):
     n_trials = len(ds.trial)
     tmpcor = np.stack([np.corrcoef(ds.activity.isel(trial=x).data.transpose()) for x in range(n_trials)])
@@ -1032,109 +1091,32 @@ def plot_cross_temp_corr(ds, ax=None, name=''):
     ax.set_ylabel('Time (s)')
     ax.set_title(f'Mean cross-temporal correlation across {n_trials} {name} trials')
 
+def plot_hist_p_vals_manual_decoders(p_val_dict, ax=None):
+    if ax is None:
+        ax = plt.subplot(111)
 
-# def plot_single_raster_plot(data_mat, session, ax=None, cax=None, reg='S1', tt='hit', c_lim=0.2,
-#                             imshow_interpolation='nearest', plot_cbar=False, print_ylabel=False,
-#                             sort_tt_list='NA', n_trials=None, time_ticks=[], time_tick_labels=[],
-#                             s1_lim=None, s2_lim=None, plot_targets=True, spec_target_trial=None,
-#                             ol_neurons_s1=None, ol_neurons_s2=None, plot_yticks=True, transparent_art=False,
-#                             plot_xlabel=True, n_stim=None, time_axis=None, filter_150_artefact=True,
-#                             cbar_pad=1.02, target_tt_specific=True):
+    tt_list = ['sensory', 'random', 'projecting', 'non_projecting']
+    p_val_arr_dict = {}
+    n_ses = 6
+    p_val_th = 0.05 / (n_ses * len(tt_list))
+    plot_logscale = True
 
-#     if ax is None:
-#         ax = plt.subplot(111)
+    for i_tt, tt in enumerate(tt_list):
+        p_val_arr_dict[tt] = np.array([p_val_dict[tt][ii][tt] for ii in range(n_ses)])
 
-#     ## Plot artefact
-#     if tt in ['hit', 'miss']:
-#         if time_axis is None:
-#             print('no time axis given to raster')
-#             zero_tick = 120
-#             ax.axvspan(zero_tick-2, zero_tick+30*0.5, alpha=1, color=color_tt['photostim'])
-#         else:
-#             # time_axis[np.logical_and(time_axis >= -0.07, time_axis < 0.35)] = np.nan
-#             start_art_frame = np.argmin(np.abs(time_axis + 0.07))
-#             if filter_150_artefact:
-#                 end_art_frame = np.argmin(np.abs(time_axis - 0.35))
-#             else:
-#                 end_art_frame = np.argmin(np.abs(time_axis - 0.83))
-#             if not transparent_art:
-#                 data_mat = copy.deepcopy(data_mat)
-#                 data_mat[:, start_art_frame:end_art_frame] = np.nan
-#             ax.axvspan(start_art_frame - 0.25, end_art_frame - 0.25, alpha=0.3, color=color_tt['photostim'])
+        random_x_coords = i_tt + np.random.rand(n_ses) * 0.1 - 0.05
+        ax.plot(random_x_coords, p_val_arr_dict[tt], '.', label=tt, 
+                c=colour_tt_dict[tt], markersize=15, clip_on=False)
 
-#     ## Plot raster plots
-#     im = ax.imshow(data_mat, aspect='auto', vmin=-c_lim, vmax=c_lim,
-#                     cmap='BrBG_r', interpolation=imshow_interpolation)
-
-#     if plot_cbar:
-#         if cax is None:
-#             print('cax is none')
-#             cbar = plt.colorbar(im, ax=ax).set_label(r"$\Delta F/F$" + ' activity')# \nnormalised per neuron')
-#         else:
-#             ## pretty sure shrink & cbar_pad dont work because cax is already defined.
-#             cbar = plt.colorbar(im, cax=cax, orientation='vertical', shrink=0.5, pad=cbar_pad)
-#             cbar.set_label(r"$\Delta F/F$", labelpad=3)
-#             cbar.set_ticks([])
-#             cbar.ax.text(0.5, -0.01, '-0.2'.replace("-", u"\u2212"), transform=cbar.ax.transAxes, va='top', ha='center')
-#             cbar.ax.text(0.5, 1.0, '+0.2', transform=cbar.ax.transAxes, va='bottom', ha='center')       
-    
-#     if print_ylabel:
-#         ax.set_ylabel(f'Neuron ID sorted by {reg}-{sort_tt_list}\npost-stim trial correlation',
-#                       fontdict={'weight': 'bold'}, loc=('bottom' if n_stim is not None else 'center'))
-#     if n_stim is None:
-#         ax.set_title(f'Trial averaged {tt} {reg} (N={n_trials})')
-#     else:
-#         ax.set_title(f'{tt} {reg}, n_stim={n_stim} (N={n_trials})')
-#     if plot_xlabel:
-#         ax.set_xlabel(f'Time (s)')
-#     ax.set_xticks(time_ticks)
-
-#     ax.set_xticklabels(time_tick_labels)
-#     if plot_yticks:
-#         ax.tick_params(axis='y', left='on', which='major')
-#         ax.yaxis.set_minor_locator(MultipleLocator(2))
-#     else:
-#         ax.set_yticks([])
-#     # ax.tick_params(axis='y', left='on', which='minor', width=0.5)
-#     if s1_lim is not None and reg == 'S1':
-#         ax.set_ylim(s1_lim)
-#     if s2_lim is not None and reg == 'S2':
-#         ax.set_ylim(s2_lim)
-
-#     ## Target indicator
-#     if plot_targets and tt in ['hit', 'miss']:
-#         if reg == 'S1':
-#             reg_bool = session.s1_bool
-#         elif reg == 'S2':
-#             reg_bool = session.s2_bool
-#         assert len(np.unique(session.is_target.mean((0, 1)))) == 1  # same for all time points
-#         if filter_150_artefact:  # 150 not included
-#             target_mat = session.is_target[:, session.photostim < 2, :]
-#         else:
-#             target_mat = session.is_target
-#         if spec_target_trial is None: 
-#             if target_tt_specific:  # get hit/miss specific targets
-#                 if filter_150_artefact:
-#                     tt_spec_arr = session.outcome[session.photostim < 2] == tt
-#                 else:
-#                     tt_spec_arr = session.outcome == tt
-#                 target_mat = target_mat[:, tt_spec_arr, :]
-#             neuron_targ = np.mean(target_mat, (1, 2))
-#         else:
-#             neuron_targ = np.mean(target_mat, 2)
-#             neuron_targ = neuron_targ[:, spec_target_trial]
-#         neuron_targ_reg = neuron_targ[reg_bool]  # select region
-#         if reg == 'S1':
-#             neuron_targ_reg = neuron_targ_reg[ol_neurons_s1]  # sort
-#         elif reg == 'S2':
-#             neuron_targ_reg = neuron_targ_reg[ol_neurons_s2]
-#         divider = make_axes_locatable(ax)
-#         targ_ax = divider.append_axes('right', size='6%', pad=0.0)
-#         targ_ax.imshow(neuron_targ_reg[:, None], cmap='Greys', aspect='auto', interpolation='nearest')
-#         targ_ax.set_xticks([])
-#         targ_ax.set_yticks([])
-#         if s1_lim is not None and reg == 'S1':
-#             targ_ax.set_ylim(s1_lim)
-#         if s2_lim is not None and reg == 'S2':
-#             targ_ax.set_ylim(s2_lim)
-#     return ax
+    ax.set_xlabel('Trial type')
+    ax.set_ylabel('P value per session')
+    ax.set_xticks(np.arange(len(tt_list)))
+    ax.set_xticklabels([label_tt_dict[tt] for tt in tt_list], rotation=0)
+    despine(ax)
+    ax.plot([-0.25, 3.25], [p_val_th, p_val_th], c='k', linestyle=':', label='Significance threshold')
+    # ax.legend(loc='best')
+    if plot_logscale:
+        ax.set_yscale('log')
+        ax.text(s='Significance threshold', x=-0.25, y=p_val_th * 1.1, fontdict={'va': 'bottom'})
+    else:
+        ax.set_ylim([0, 1])
