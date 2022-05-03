@@ -1120,3 +1120,30 @@ def plot_hist_p_vals_manual_decoders(p_val_dict, ax=None):
         ax.text(s='Significance threshold', x=-0.25, y=p_val_th * 1.1, fontdict={'va': 'bottom'})
     else:
         ax.set_ylim([0, 1])
+
+def plot_distr_poststim_activity(ses, ax=None, plot_hist=False, tt_list=['sensory', 'sham'], 
+                                 plot_logscale=False):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    tmpr = ses.dataset_selector(region='s2', remove_added_dimensions=True,
+                                sort_neurons=False, trial_type_list=tt_list)
+    if plot_hist:
+        tmphist = ax.hist([tmpr.activity.where(tmpr.trial_type==tt, drop=True).data[:, 45:75, :].ravel() for tt in tt_list],
+                            label=tt_list, bins=np.linspace(-5, 5, 101), color=[colour_tt_dict[tt] for tt in tt_list])
+        ax.set_ylabel('Frequency ')
+    else:
+        ax.set_ylabel('PDF (Gaussian fit)')
+        for i_tt, tt in enumerate(tt_list):
+            plot_data = tmpr.activity.where(tmpr.trial_type==tt, drop=True).data[:, 45:75, :].ravel()
+            mean_data = np.mean(plot_data)
+            var_data = np.var(plot_data)
+            gauss_fit = scipy.stats.norm(loc=mean_data, scale=np.sqrt(var_data))
+            x_data = np.linspace(-2.5, 2.5, 1000)
+            ax.plot(x_data, gauss_fit.pdf(x_data), linewidth=3, label=tt, c=colour_tt_dict[tt])
+
+    ax.legend(frameon=False)
+    ax.set_xlabel('DF/F activity during 1-3 sec post-stim window\n(per neuron per trial per time point)')
+    despine(ax)
+    ax.set_xlim([-2.5, 2.5])
+    if plot_logscale:
+        ax.set_yscale('log')
