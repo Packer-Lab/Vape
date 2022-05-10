@@ -299,19 +299,20 @@ class SimpleSession():
         self.full_ds.where(tmp.full_ds.time > 3, drop=True)  # works with any bool array
         self.full_ds.where(tmp.full_ds.neuron == 50, drop=True)  # dito 
         self.full_ds.where(tmp_full_ds.trial_type.isin(['sensory', 'random']), drop=True)  # use da.isin for multipel value checking
+        
+        ### Somehow the order of where calls matters A LOT for the runtime:
+        ## time, region, tt => 4.3s
+        ## time, tt, region => 1.5s
+        ## tt, region, time => long
+        ## time, region => 1.7
+        ## region, time => 27s
+
         """
         if deepcopy:
             tmp_data = self.full_ds.copy(deep=True)
         else:
             tmp_data = self.full_ds
-        if region is not None:
-            assert region in ['s1', 's2']
-            if region == 's1':
-                tmp_data = tmp_data.where(tmp_data.cell_s1, drop=True)
-            elif region == 's2':
-                tmp_data = tmp_data.where(np.logical_not(tmp_data.cell_s1), drop=True)
-        # return tmp_data
-        ## TODO; speed up time selection   
+        
         if min_t is not None:
             tmp_data = tmp_data.where(tmp_data.time >= min_t, drop=True)
         if max_t is not None:
@@ -321,6 +322,13 @@ class SimpleSession():
             assert type(trial_type_list) == list
             assert np.array([tt in self.list_tt for tt in trial_type_list]).all(), f'{trial_type_list} not in {self.list_tt}'
             tmp_data = tmp_data.where(tmp_data.trial_type.isin(trial_type_list), drop=True)
+
+        if region is not None:
+            assert region in ['s1', 's2']
+            if region == 's1':
+                tmp_data = tmp_data.where(tmp_data.cell_s1, drop=True)
+            elif region == 's2':
+                tmp_data = tmp_data.where(np.logical_not(tmp_data.cell_s1), drop=True)
 
         ## squeeze trial type &  potentially other vars that got extra dims (cell_s1 cell_id)
         if remove_added_dimensions:
