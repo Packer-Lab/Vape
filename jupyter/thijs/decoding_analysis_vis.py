@@ -22,6 +22,7 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import seaborn as sns
 import pandas as pd
+sys.path.append('/home/tplas/repos/Vape')
 # from utils.utils_funcs import correct_s2p_combined 
 import xarray as xr
 import scipy
@@ -282,7 +283,7 @@ class SimpleSession():
         self.time_aggr_ds = None
 
     def dataset_selector(self, region=None, min_t=None, max_t=None, trial_type_list=None,
-                         remove_added_dimensions=True, sort_neurons=True, reset_sort=False,
+                         remove_added_dimensions=True, sort_neurons=False, reset_sort=False,
                          deepcopy=True):
         """## xarray indexing cheat sheet:
         self.full_ds.activity.data  # retrieve numpy array type 
@@ -309,7 +310,7 @@ class SimpleSession():
                 tmp_data = tmp_data.where(tmp_data.cell_s1, drop=True)
             elif region == 's2':
                 tmp_data = tmp_data.where(np.logical_not(tmp_data.cell_s1), drop=True)
-
+        # return tmp_data
         ## TODO; speed up time selection   
         if min_t is not None:
             tmp_data = tmp_data.where(tmp_data.time >= min_t, drop=True)
@@ -507,14 +508,16 @@ class SimpleSession():
 
     def population_tt_decoder(self, region='s2', bool_subselect_neurons=False,
                               decoder_type='LDA', tt_list=['whisker', 'sham'],
-                              n_cv_splits=5, verbose=1, subtract_pcs=False):
+                              n_cv_splits=5, verbose=1, subtract_pcs=False,
+                              t_min=0.4, t_max=2):
         """Decode tt from pop of neurons.
         Use time av response, region specific, neuron subselection.
         Use CV, LDA?, return mean test accuracy"""
         ## make time-averaged data
         self.create_time_averaged_response(sort_neurons=False, region=region,
                                             subtract_pcs=subtract_pcs,
-                                           subtract_pop_av=False, trial_type_list=tt_list)
+                                           subtract_pop_av=False, trial_type_list=tt_list,
+                                           t_min=t_min, t_max=t_max)
         if verbose > 0:
             print('Time-aggregated activity object created')
         ## activity is now in self.time_aggr_ds
