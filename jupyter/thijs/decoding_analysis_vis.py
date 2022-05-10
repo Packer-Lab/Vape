@@ -1131,6 +1131,12 @@ def plot_distr_poststim_activity(ses, ax=None, plot_hist=False, tt_list=['sensor
         tmphist = ax.hist([tmpr.activity.where(tmpr.trial_type==tt, drop=True).data[:, 45:75, :].ravel() for tt in tt_list],
                             label=tt_list, bins=np.linspace(-5, 5, 101), color=[colour_tt_dict[tt] for tt in tt_list])
         ax.set_ylabel('Frequency ')
+
+        ## plot difference:
+        # plt.plot((tmphist[1][1:] + tmphist[1][:-1]) * 0.5, tmphist[0][0, :] - tmphist[0][1, :])
+        # plt.xlabel('difference sensory - sham')
+        # plt.ylabel('Frequency')
+        # print(tmphist[0].sum(1))
     else:
         ax.set_ylabel('PDF (Gaussian fit)')
         for i_tt, tt in enumerate(tt_list):
