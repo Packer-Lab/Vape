@@ -40,7 +40,7 @@ sess_type_dict = {'sens': 'sensory_2sec_test',
 sys.path.append(vape_path)
 sys.path.append(os.path.join(vape_path, 'my_suite2p')) # to import ops from settings.py in that folder
 sys.path.append(s2p_path)
-import suite2p
+# import suite2p
 
 prop_cycle = plt.rcParams['axes.prop_cycle']
 colors = prop_cycle.by_key()['color']
@@ -815,7 +815,8 @@ def plot_raster_sorted_activity(Ses=None, sort_here=False, create_new_time_aggr_
     ax.set_title('Time-averaged data (average of 2 seconds post-stimulus per trial per neuron)')
     return ax
 
-def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
+def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None, 
+                    custom_title='Full population LDA-decoding of trial types vs sham across 6 sessions'):
 
     if dict_sess_type_tt is None:
         dict_sess_type_tt = {'sens': ['sensory', 'random', 'whisker'],
@@ -848,8 +849,9 @@ def bar_plot_decoder_accuracy(scores_dict, dict_sess_type_tt=None):
         despine(ax_curr)
         ax_curr.set_xticklabels(ax_curr.get_xticklabels(), rotation=45)
     ax[0].text(y=1.15, x=6, fontdict={'weight': 'bold', 'ha': 'center'},
-                s=f'Full population LDA-decoding of trial types vs sham across 6 sessions')
-        
+                s=custom_title)
+    # return ax
+
 def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'random', 'sham'],
                                 merge_trial_types_during_pca=True, verbose=0,
                                 plot_ci=True, plot_indiv_trials=False, plot_loadings=True,
@@ -1005,23 +1007,23 @@ def plot_pca_time_aggr_activity(Ses, trial_type_list=['whisker', 'sensory', 'ran
 
 def manual_poststim_response_classifier(Ses, region='s2', tt_1='sensory', tt_2='sham',
                                         t_min=1, t_max=2, time_aggr_method='average',
-                                        n_shuffles=5000, verbose=1, plot_hist=True, ax=None):    
+                                        n_shuffles=5000, verbose=1, plot_hist=True, ax=None,
+                                        neuron_aggr_method='average'):    
     tt_list = [tt_1, tt_2]
     assert len(tt_list) == 2, 'multi classification not implemented'
-
+    assert neuron_aggr_method in ['average', 'variance'], f'{neuron_aggr_method} not recognised'
+    assert time_aggr_method == 'average', 'no other aggretation method than average implemented'
     ## Get data
     ds = Ses.dataset_selector(region=region, remove_added_dimensions=True,
                               min_t=t_min, max_t=t_max,
                             sort_neurons=False, trial_type_list=tt_list)
     n_trials_per_tt = 100
-    tmp_data_dict = {}
     time_av_responses_dict = {}
     for i_tt, tt in enumerate(tt_list):
-        tmp_data_dict[tt] = ds.activity.where(ds.trial_type == tt, drop=True).mean('neuron').data.transpose()
-        if time_aggr_method == 'average':
-            time_av_responses_dict[tt] = tmp_data_dict[tt][:, :].mean(1)
-        else:
-            assert False, 'no other aggretation method than average implemented'
+        if neuron_aggr_method == 'average':
+            time_av_responses_dict[tt] = ds.activity.where(ds.trial_type == tt, drop=True).mean(['neuron', 'time'])
+        elif neuron_aggr_method == 'variance':
+            time_av_responses_dict[tt] = ds.activity.where(ds.trial_type == tt, drop=True).mean('time').var('neuron')    
         assert len(time_av_responses_dict[tt]) == 100
 
     ## Get real classification performance
@@ -1113,11 +1115,12 @@ def plot_hist_p_vals_manual_decoders(p_val_dict, ax=None):
     plot_logscale = True
 
     for i_tt, tt in enumerate(tt_list):
-        p_val_arr_dict[tt] = np.array([p_val_dict[tt][ii][tt] for ii in range(n_ses)])
+        if tt in p_val_dict.keys():
+            p_val_arr_dict[tt] = np.array([p_val_dict[tt][ii][tt] for ii in range(n_ses)])
 
-        random_x_coords = i_tt + np.random.rand(n_ses) * 0.1 - 0.05
-        ax.plot(random_x_coords, p_val_arr_dict[tt], '.', label=tt, 
-                c=colour_tt_dict[tt], markersize=15, clip_on=False)
+            random_x_coords = i_tt + np.random.rand(n_ses) * 0.1 - 0.05
+            ax.plot(random_x_coords, p_val_arr_dict[tt], '.', label=tt, 
+                    c=colour_tt_dict[tt], markersize=15, clip_on=False)
 
     ax.set_xlabel('Trial type')
     ax.set_ylabel('P value per session')

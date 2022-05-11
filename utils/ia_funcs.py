@@ -1082,7 +1082,8 @@ def stat_test_timepoint(df, time_array, col_1='', col_2='', frames_bin=2, th=0.0
             inds_rows = np.logical_and(df['timepoint'] >= time_min, 
                                     df['timepoint'] < time_max)
             sub_df = df[inds_rows]  # select df during this time bin
-
+            assert len(sub_df['timepoint'].unique()) == frames_bin
+            # print(start_frame, end_frame, time_min, time_max, sub_df['timepoint'].unique(), sub_df['frame'].unique(),  len(sub_df))
             stat, pval = stats.wilcoxon(x=sub_df[col_1], y=sub_df[col_2], 
                                             alternative='two-sided')
             if pval < th_bonf:
