@@ -623,6 +623,80 @@ class SimpleSession():
                 self.all_trials_nonbaselined[tt][:, :, i_trial] = nonnorm_trial
             # self.all_trials_nonbaselined[tt] = self.all_trials_nonbaselined[tt][self._mask_neurons_keep, :, :]
 
+class AllSessions():
+    def __init__(self, sess_type='sens', verbose=1,
+                 shuffle_trial_labels=False, shuffle_timepoints=False, 
+                 shuffle_all_data=False, prestim_baseline=True,
+                 bool_filter_neurons=True, 
+                 memory_efficient=False):
+        self.sess_type = sess_type
+        self.n_sessions = 6  ## hard coding this because this is what the data is like
+        self.verbose = verbose 
+        self.shuffle_timepoints = shuffle_timepoints
+        self.shuffle_trial_labels = shuffle_trial_labels
+        self.shuffle_all_data = shuffle_all_data
+        self.bool_filter_neurons = bool_filter_neurons
+        self.prestim_baseline = prestim_baseline
+        self.memory_efficent = memory_efficient
+
+        if self.sess_type == 'sens':
+            self._key_dict = {'photostim_s': 'sensory', 
+                              'photostim_r': 'random',
+                              'whisker_stim': 'whisker',
+                              'spont': 'sham'}
+            self._list_tt_original = ['photostim_s', 'photostim_r', 'spont', 'whisker_stim']
+        elif self.sess_type == 'proj':
+            self._key_dict = {'photostim_s': 'projecting', 
+                              'photostim_r': 'non_projecting',
+                              'spont': 'sham'}
+            self._list_tt_original = ['photostim_s', 'photostim_r', 'spont']
+        self.list_tt = [self._key_dict[tt] for tt in self._list_tt_original]
+
+        self.create_accumulated_data()
+        self.dataset_selector = SimpleSession.dataset_selector
+        self.create_time_averaged_response = SimpleSession.create_time_averaged_response
+
+    def create_accumulated_data(self):
+        ## Load individual sessions:
+        self.sess_dict = {}
+        for i_s in range(self.n_sessions):
+            self.sess_dict[i_s] = SimpleSession(verbose=self.verbose, session_id=i_s, 
+                                                shuffle_trial_labels=self.shuffle_trial_labels,
+                                                shuffle_timepoints=self.shuffle_timepoints,
+                                                shuffle_all_data=self.shuffle_all_data,
+                                                prestim_baseline=self.prestim_baseline,
+                                                bool_filter_neurons=self.bool_filter_neurons)
+
+        if self.verbose > 0:
+            print('Individual sessions loaded')
+
+        ## Do some asserts to make sure all is well
+        for ii in range(self.n_sessions):
+            assert (self.sess_dict[ii].full_ds.activity.ndim == 3)
+            if ii > 0:  # compare to first (and hence all are effectively compared against each other)
+                assert (self.sess_dict[0].full_ds.activity.shape[1:] == self.sess_dict[ii].full_ds.activity.shape[1:])
+                assert (self.sess_dict[0].full_ds.trial_type == self.sess_dict[ii].full_ds.trial_type).all()  # ensure same trial types per trial
+                assert np.allclose(self.sess_dict[0].full_ds.time.data, self.sess_dict[ii].full_ds.time.data, atol=1e-6)  # ensure same time axis
+
+        ## Create new xr.Dataset that concatenates all sessions:
+        if self.memory_efficent:
+            cc_ds = xr.concat(objs=[self.sess_dict[ii].full_ds.copy(deep=True) for ii in range(self.n_sessions)], 
+                              dim='neuron', join='override')  # join='override' from https://github.com/pydata/xarray/issues/3681
+            for ii in range(self.n_sessions):
+                self.sess_dict[ii] = None
+        else:
+            cc_ds = xr.concat(objs=[self.sess_dict[ii].full_ds for ii in range(self.n_sessions)], 
+                              dim='neuron', join='override')  # join='override' from https://github.com/pydata/xarray/issues/3681
+        cc_ds['original_neuron_index'] = cc_ds.activity.neuron  # save original neuron index
+        cc_ds['neuron'] = np.arange(cc_ds.activity.neuron.shape[0])  # but make main index uniquely accumulating across sessions
+        if 'neuron' in cc_ds.trial_type.dims:
+            for i_trial in range(cc_ds.trial.shape[0]):
+                assert len(np.unique(cc_ds.trial_type[:, i_trial].data)) == 1  # ensure all trial types same structure
+            cc_ds = cc_ds.assign(trial_type=cc_ds.trial_type.isel(neuron=0).drop('neuron'))  # is this the best way? probably missing some magic here
+        assert np.sum(np.isnan(cc_ds.activity)) == 0      
+
+        self.full_ds = cc_ds        
+
 def shuffle_along_axis(a, axis):
     ## https://stackoverflow.com/questions/5040797/shuffling-numpy-array-along-a-given-axis
     idx = np.random.rand(*a.shape).argsort(axis=axis)
