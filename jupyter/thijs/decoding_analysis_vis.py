@@ -624,6 +624,7 @@ class SimpleSession():
             # self.all_trials_nonbaselined[tt] = self.all_trials_nonbaselined[tt][self._mask_neurons_keep, :, :]
 
 class AllSessions():
+    '''Class that accumulates data from all sessions (of one of the two sess types)'''
     def __init__(self, sess_type='sens', verbose=1,
                  shuffle_trial_labels=False, shuffle_timepoints=False, 
                  shuffle_all_data=False, prestim_baseline=True,
