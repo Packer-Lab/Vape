@@ -2,7 +2,7 @@
 ## Thijs van der Plas
 
 from json import decoder
-import os, sys, pickle
+import os, sys, pickle, copy
 
 ## Data paths, from 'rob_setup_notebook.ipynb'
 vape_path = '/home/tplas/repos/Vape/'
@@ -44,12 +44,12 @@ sys.path.append(s2p_path)
 
 prop_cycle = plt.rcParams['axes.prop_cycle']
 colors = prop_cycle.by_key()['color']
-colour_tt_dict = {'sensory': colors[0],
-                  'random': colors[1],
-                  'projecting': colors[2],
-                  'non_projecting': colors[3],
-                  'whisker': colors[4],
-                  'sham': 'k'}
+colour_tt_dict = {'sensory': colors[1],
+                  'random': colors[0],
+                  'projecting': colors[4],
+                  'non_projecting': colors[5],
+                  'whisker': colors[6],
+                  'sham': colors[2]}
 label_tt_dict = {'sensory': 'Sensory',
                   'random': 'Random',
                   'projecting': 'Projecting',
@@ -61,7 +61,7 @@ def get_session_names(pkl_folder=pkl_folder,
                       sess_type='sens'):
     pkl_folder_path = os.path.join(pkl_folder, sess_type_dict[sess_type])
     list_session_names = os.listdir(pkl_folder_path)
-    exclude_list = ['2020-09-09_RL100.pkl', '2020-09-15_RL102.pkl']
+    exclude_list = ['2020-09-09_RL100.pkl', '2020-09-15_RL102.pkl']  # should be excluded (Rob said)
     list_session_names = [x for x in list_session_names if x not in exclude_list]
     assert len(list_session_names) == 6, 'less or more than 6 sessions found'
     return list_session_names
@@ -192,6 +192,8 @@ class SimpleSession():
             if i_tt == 0:
                 self.time_array = getattr(self.SesObj, tt).time
                 self.n_timepoints = len(self.time_array)
+                self.frame_array = np.arange(self.n_timepoints)
+                assert self.n_timepoints == 182, 'length time axis not as expected..?'
                 assert self.n_timepoints == self.all_trials[self._key_dict[tt]].shape[1]
             else:
                 assert np.isclose(self.time_array, getattr(self.SesObj, tt).time, atol=1e-6).all(), 'time arrays not equal across tts?'
@@ -200,7 +202,7 @@ class SimpleSession():
                 self.targeted_cells[self._key_dict[tt]] = getattr(self.SesObj, tt).targeted_cells[self._mask_neurons_keep]
                 self.n_targeted_cells[self._key_dict[tt]] = np.sum(self.targeted_cells[self._key_dict[tt]])
                 self._n_targeted_cells_original[self._key_dict[tt]] = np.sum(getattr(self.SesObj, tt).targeted_cells)
-                self.target_coords[self._key_dict[tt]] = [x for i_x, x in enumerate(getattr(self.SesObj, tt).target_coords) if self._mask_neurons_keep[i_x]]
+                self.target_coords[self._key_dict[tt]] = [x for i_x, x in enumerate(getattr(self.SesObj, tt).target_coords) if self._mask_neurons_keep[i_x]]  # note that sham == random, but of course none were stimulated on sham trials
             
             self.cell_s1[self._key_dict[tt]] = np.array(getattr(self.SesObj, tt).cell_s1[0])[self._mask_neurons_keep]
             self.cell_s2[self._key_dict[tt]] = np.array(getattr(self.SesObj, tt).cell_s2[0])[self._mask_neurons_keep]
@@ -274,15 +276,54 @@ class SimpleSession():
         data_arr.trial.attrs['units'] = '#'
         data_arr.attrs['units'] = 'DF/F'
 
-        data_set = xr.Dataset({'activity': data_arr, 
-                               'cell_s1': ('neuron', self.cell_s1['sham']),  # same for all tt anyway
-                               'cell_id': ('neuron', self.cell_id['sham']),
-                               'trial_type': ('trial', tt_arr)})
+        target_dict = {f'targets_{tt}': ('neuron', self.targeted_cells[tt]) for tt in self.list_tt if tt not in ['sham', 'whisker']}
+
+        data_set = xr.Dataset({**{'activity': data_arr, 
+                                  'cell_s1': ('neuron', self.cell_s1['sham']),  # same for all tt anyway
+                                  'cell_id': ('neuron', self.cell_id['sham']),
+                                  'trial_type': ('trial', tt_arr),
+                                  'frame_array': ('time', self.frame_array)},
+                               **target_dict})
 
         self.full_ds = data_set
+        all_vars = list(dict(self.full_ds.variables).keys())                    
+        self.coord_dict = {var_name: self.full_ds[var_name].dims for var_name in all_vars}  # original (squeezed) coordinates
+        self.datatype_dict = {var_name: self.full_ds[var_name].dtype for var_name in all_vars}
         self.time_aggr_ds = None
 
+    def squeeze_coords(self, tmp_dataset):
+        '''Squeeze coordinates based on original coords (self.coord_dict)'''
+        all_vars = list(dict(tmp_dataset.variables).keys())
+            
+        for var_name in all_vars:
+            if var_name not in ['time', 'neuron', 'trial', 'activity']:  # leave main vars out of this
+                original_var_coords = self.coord_dict[var_name]  # original (squeezed) coordinates
+                if len(original_var_coords) == 1:  ## assuming this is the true squeezed # of dims
+                    
+                    if original_var_coords[0] == 'trial':  ## Trial type only array: (hand-coded differently because of isel, could probably soft-code?)
+                        if 'time' in tmp_dataset[var_name].dims:
+                            tmp_dataset = tmp_dataset.assign({var_name: tmp_dataset[var_name].isel(time=0).drop('time')}) 
+                        if 'neuron' in tmp_dataset[var_name].dims:
+                            tmp_dataset = tmp_dataset.assign({var_name: tmp_dataset[var_name].isel(neuron=0).drop('neuron').astype(self.datatype_dict[var_name])}) 
+
+                    if original_var_coords[0] == 'neuron':  ## neuron-only dim 
+                        if 'time' in tmp_dataset[var_name].dims:
+                            tmp_dataset = tmp_dataset.assign({var_name: tmp_dataset[var_name].isel(time=0).drop('time')})  ## use kwargs to call var_name, and use tmp_dataset[var_name] because that is updated from time to trial
+                        if 'trial' in tmp_dataset[var_name].dims:
+                            tmp_dataset = tmp_dataset.assign({var_name: tmp_dataset[var_name].isel(trial=0).drop('trial').astype(self.datatype_dict[var_name])}) 
+
+                    if original_var_coords[0] == 'time':  ## Time only array:
+                        if 'trial' in tmp_dataset[var_name].dims:
+                            tmp_dataset = tmp_dataset.assign({var_name: tmp_dataset[var_name].isel(trial=0).drop('trial')}) 
+                        if 'neuron' in tmp_dataset[var_name].dims:
+                            tmp_dataset = tmp_dataset.assign({var_name: tmp_dataset[var_name].isel(neuron=0).drop('neuron').astype(self.datatype_dict[var_name])}) 
+
+                else:
+                    assert len(original_var_coords) == 3, 'Also implement squeeze for 2D!'
+        return tmp_dataset
+
     def dataset_selector(self, region=None, min_t=None, max_t=None, trial_type_list=None,
+                         exclude_targets_s1=False, frame_id=None,
                          remove_added_dimensions=True, sort_neurons=False, reset_sort=False,
                          deepcopy=True):
         """## xarray indexing cheat sheet:
@@ -313,41 +354,40 @@ class SimpleSession():
         else:
             tmp_data = self.full_ds
         
-        if min_t is not None:
-            tmp_data = tmp_data.where(tmp_data.time >= min_t, drop=True)
-        if max_t is not None:
-            tmp_data = tmp_data.where(tmp_data.time <= max_t, drop=True)
+        if frame_id is not None:
+            '''Only implemented == operation and not limits because this is much faster. ssh '''
+            assert min_t == None and max_t == None, 'you cannot select both frame # and time points'
+            tmp_data = tmp_data.where(tmp_data.frame_array == frame_id, drop= True)
+            tmp_data = self.squeeze_coords(tmp_dataset=tmp_data)  # xr.where() broadcasts data vars into additional dimensions, which 1) uses more RAM and 2) makes the next indexing slow. So squeeze after each where() call
+        else:
+            if min_t is not None:
+                tmp_data = tmp_data.where(tmp_data.time >= min_t, drop=True)
+                tmp_data = self.squeeze_coords(tmp_dataset=tmp_data)
+            if max_t is not None:
+                tmp_data = tmp_data.where(tmp_data.time <= max_t, drop=True)
+                tmp_data = self.squeeze_coords(tmp_dataset=tmp_data)
 
         if trial_type_list is not None:
             assert type(trial_type_list) == list
             assert np.array([tt in self.list_tt for tt in trial_type_list]).all(), f'{trial_type_list} not in {self.list_tt}'
             tmp_data = tmp_data.where(tmp_data.trial_type.isin(trial_type_list), drop=True)
+            tmp_data = self.squeeze_coords(tmp_dataset=tmp_data)
 
         if region is not None:
             assert region in ['s1', 's2']
             if region == 's1':
                 tmp_data = tmp_data.where(tmp_data.cell_s1, drop=True)
+                tmp_data = self.squeeze_coords(tmp_dataset=tmp_data)
             elif region == 's2':
                 tmp_data = tmp_data.where(np.logical_not(tmp_data.cell_s1), drop=True)
+                tmp_data = self.squeeze_coords(tmp_dataset=tmp_data)
 
-        ## squeeze trial type &  potentially other vars that got extra dims (cell_s1 cell_id)
-        if remove_added_dimensions:
-            ## Trial type:
-            if 'neuron' in tmp_data.trial_type.dims:
-                tmp_data = tmp_data.assign(trial_type=tmp_data.trial_type.isel(neuron=0).drop('neuron'))  # is this the best way? probably missing some magic here
-            if 'time' in tmp_data.trial_type.dims:
-                tmp_data = tmp_data.assign(trial_type=tmp_data.trial_type.isel(time=0).drop('time'))  
-            ## S1 
-            if 'time' in tmp_data.cell_s1.dims:
-                tmp_data = tmp_data.assign(cell_s1=tmp_data.cell_s1.isel(time=0).drop('time')) 
-            if 'trial' in tmp_data.cell_s1.dims:
-                tmp_data = tmp_data.assign(cell_s1=tmp_data.cell_s1.isel(trial=0).drop('trial')) 
-            ## Cell ID
-            if 'time' in tmp_data.cell_id.dims:
-                tmp_data = tmp_data.assign(cell_id=tmp_data.cell_id.isel(time=0).drop('time')) 
-            if 'trial' in tmp_data.cell_id.dims:
-                tmp_data = tmp_data.assign(cell_id=tmp_data.cell_id.isel(trial=0).drop('trial')) 
-
+        if exclude_targets_s1 and region == 's1':
+            target_names = [xx for xx in list(dict(tmp_data.variables).keys()) if xx[:7] == 'targets']
+            for tn in target_names:
+                tmp_data = tmp_data.where(np.logical_not(tmp_data[tn]), drop=True)
+                tmp_data = self.squeeze_coords(tmp_dataset=tmp_data)
+            
         # apply sorting (to neurons, and randomizatin of trials ? )
         if sort_neurons:
             if self.sorted_inds_neurons is None or reset_sort:
@@ -656,12 +696,14 @@ class AllSessions():
         self.create_accumulated_data()
         self.dataset_selector = SimpleSession.dataset_selector
         self.create_time_averaged_response = SimpleSession.create_time_averaged_response
+        self.squeeze_coords = lambda tmp_dataset: SimpleSession.squeeze_coords(self=self, tmp_dataset=tmp_dataset)
 
     def create_accumulated_data(self):
         ## Load individual sessions:
         self.sess_dict = {}
         for i_s in range(self.n_sessions):
             self.sess_dict[i_s] = SimpleSession(verbose=self.verbose, session_id=i_s, 
+                                                sess_type=self.sess_type,
                                                 shuffle_trial_labels=self.shuffle_trial_labels,
                                                 shuffle_timepoints=self.shuffle_timepoints,
                                                 shuffle_all_data=self.shuffle_all_data,
@@ -694,9 +736,20 @@ class AllSessions():
             for i_trial in range(cc_ds.trial.shape[0]):
                 assert len(np.unique(cc_ds.trial_type[:, i_trial].data)) == 1  # ensure all trial types same structure
             cc_ds = cc_ds.assign(trial_type=cc_ds.trial_type.isel(neuron=0).drop('neuron'))  # is this the best way? probably missing some magic here
+        if 'neuron' in cc_ds.frame_array.dims:
+            for i_time in range(cc_ds.time.shape[0]):
+                assert len(np.unique(cc_ds.frame_array[:, i_time].data)) == 1  # ensure all trial types same structure
+            cc_ds = cc_ds.assign(frame_array=cc_ds.frame_array.isel(neuron=0).drop('neuron'))  # is this the best way? probably missing some magic here
+            
         assert np.sum(np.isnan(cc_ds.activity)) == 0      
 
+
+
         self.full_ds = cc_ds        
+        all_vars = list(dict(self.full_ds.variables).keys())                    
+        self.coord_dict = {var_name: self.full_ds[var_name].dims for var_name in all_vars}  # original (squeezed) coordinates
+        self.datatype_dict = {var_name: self.full_ds[var_name].dtype for var_name in all_vars}
+        
 
 def shuffle_along_axis(a, axis):
     ## https://stackoverflow.com/questions/5040797/shuffling-numpy-array-along-a-given-axis
@@ -1242,3 +1295,44 @@ def plot_distr_poststim_activity(ses, ax=None, plot_hist=False, tt_list=['sensor
     ax.set_xlim([-2.5, 2.5])
     if plot_logscale:
         ax.set_yscale('log')
+
+def smooth_trace(trace, one_sided_window_size=3, fix_ends=True):
+
+    window_size = int(2 * one_sided_window_size + 1)
+    old_trace = copy.deepcopy(trace)
+    trace[one_sided_window_size:-one_sided_window_size] = np.convolve(trace, np.ones(window_size), mode='valid') / window_size
+
+    if fix_ends:
+        for i_w in range(one_sided_window_size):
+            trace[i_w] = np.mean(old_trace[:(i_w + one_sided_window_size + 1)])
+            trace[-(i_w + 1)] = np.mean(old_trace[(-1 * (i_w + one_sided_window_size + 1)):])
+    return trace
+
+def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
+                       blank_ps=True, smooth_mean=True, plot_legend=False,
+                       exclude_targets_s1=False):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+
+    for i_tt, tt in enumerate(tt_list):
+        time_ax = ds.activity.time 
+        if exclude_targets_s1:
+            ## if tt targets in ds attrs
+            ds = ds.where(~ds[f'targets_{tt}'], drop=True)
+        grand_av = ds.activity.where(ds.trial_type == tt).mean(['neuron', 'trial'])
+        if blank_ps:
+            ps_period = np.logical_and(time_ax >= 0, time_ax <= 0.3)
+        grand_av[ps_period] = np.nan
+        if smooth_mean:
+            plot_av = smooth_trace(grand_av)
+        else:
+            plot_av = grand_av
+        total_std = ds.activity.where(ds.trial_type == tt).std(['neuron', 'trial'])
+        total_ci = total_std * 1.96 / np.sqrt(len(ds.neuron) * len(ds.trial))
+        ax.plot(time_ax, plot_av, label=tt, linewidth=2, color=colour_tt_dict[tt])
+        ax.fill_between(time_ax, grand_av - total_ci, grand_av + total_ci, alpha=0.3, facecolor=colour_tt_dict[tt])
+    if plot_legend:
+        ax.legend(frameon=False)
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Grand average DF/F')
+    despine(ax)
