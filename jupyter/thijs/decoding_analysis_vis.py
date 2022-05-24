@@ -324,7 +324,7 @@ class SimpleSession():
 
     def dataset_selector(self, region=None, min_t=None, max_t=None, trial_type_list=None,
                          exclude_targets_s1=False, frame_id=None,
-                         remove_added_dimensions=True, sort_neurons=False, reset_sort=False,
+                         sort_neurons=False, reset_sort=False,
                          deepcopy=True):
         """## xarray indexing cheat sheet:
         self.full_ds.activity.data  # retrieve numpy array type 
@@ -1310,15 +1310,13 @@ def smooth_trace(trace, one_sided_window_size=3, fix_ends=True):
 
 def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
                        blank_ps=True, smooth_mean=True, plot_legend=False,
-                       exclude_targets_s1=False):
+                       p_val_dict=None,
+                       plot_significance=True, test_method='cluster'):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
 
     for i_tt, tt in enumerate(tt_list):
         time_ax = ds.activity.time 
-        if exclude_targets_s1:
-            ## if tt targets in ds attrs
-            ds = ds.where(~ds[f'targets_{tt}'], drop=True)
         grand_av = ds.activity.where(ds.trial_type == tt).mean(['neuron', 'trial'])
         if blank_ps:
             ps_period = np.logical_and(time_ax >= 0, time_ax <= 0.3)
@@ -1331,8 +1329,185 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
         total_ci = total_std * 1.96 / np.sqrt(len(ds.neuron) * len(ds.trial))
         ax.plot(time_ax, plot_av, label=tt, linewidth=2, color=colour_tt_dict[tt])
         ax.fill_between(time_ax, grand_av - total_ci, grand_av + total_ci, alpha=0.3, facecolor=colour_tt_dict[tt])
+
+    if plot_significance:
+        assert test_method in ['uncorrected', 'bonferroni', 'holm_bonferroni', 'cluster'], f'test method {test_method} not recognised.!'
+        assert p_val_dict is not None, 'please provide p value dictionary'
+        if test_method == 'bonferroni':
+            sign_dict = bonferroni_correction(p_val_dict=p_val_dict)
+        elif test_method == 'holm_bonferroni':
+            sign_dict = holm_bonferroni_correction(p_val_dict=p_val_dict)
+        elif test_method == 'cluster':
+            sign_dict = suprathreshold_cluster_size_test(p_val_dict=p_val_dict)
+        elif test_method == 'uncorrected':
+            sign_dict = no_correction(p_val_dict=p_val_dict)
+        time_array = ds.time.where(ds.frame_array >= 37, drop=True).data  
+
+        i_sign_arr = 0
+        for key_tts, sign_array in sign_dict.items():
+            if key_tts[:5] == 'sham_':
+                color_bar = key_tts[5:]
+            else:
+                color_bar = None
+            plot_significance_array(array=sign_array, color_tt=color_bar, ax=ax, 
+                                    bottom_sign_bar=0.005 + i_sign_arr * 0.001,
+                                    time_ax=time_array)
+            i_sign_arr += 1
+
     if plot_legend:
-        ax.legend(frameon=False)
+        ax.legend(frameon=False, loc='lower left')
     ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Grand average DF/F')
+    ax.set_ylabel(r"Grand average $\Delta$F/F")
+    ax.set_ylim([-0.012, 0.008])
+    ax.set_yticks([-0.01, -0.005, 0, 0.005])
     despine(ax)
+
+def plot_significance_array(array, ax=None, color_tt=None, time_ax=None, bottom_sign_bar=1,
+                            text_s=None, text_x=None, text_y=None, text_c=None):
+
+    if ax is None:
+        ax = plt.subplot(111)
+
+    if color_tt is None:
+        plot_color = 'k'
+    else:
+        plot_color = colour_tt_dict[color_tt]
+
+    assert type(array) == np.ndarray
+    assert array.dtype == 'bool'
+    assert array.ndim == 1
+
+    if time_ax is None:
+        time_ax = np.arange(len(array))
+
+    assert len(time_ax) == len(array)
+
+    ax.plot(time_ax, [bottom_sign_bar if x == 1 else np.nan for x in array],
+            linewidth=4, c=plot_color, clip_on=False)
+    if text_s is not None and text_x is not None and text_y is not None:
+        if text_c is None:
+            text_c = plot_color
+        ax.text(s=text_s, x=text_x, y=text_y, color=text_c)
+        
+
+def compute_dynamic_pvals(ds, tt_list=['sensory', 'random', 'sham']):
+    frame_array = ds.frame_array.data
+    first_frame_post_art = 37
+    last_frame = frame_array[-1]
+    n_frames = last_frame - first_frame_post_art + 1
+    p_val_array = {}  # will contain array of uncorrected p values
+    ds_tt_dict = {}
+
+    for tt in tt_list:
+        ds_sel = ds.where(ds.trial_type == tt, drop=True)
+        if 'trial' in ds_sel.frame_array.dims:
+            ds_sel = ds_sel.assign(frame_array=ds_sel.frame_array.isel(trial=0).drop('trial').astype('int')) 
+        ds_tt_dict[tt] = ds_sel
+
+    for i_tt1, tt1 in enumerate(tt_list):
+        for i_tt2, tt2 in enumerate(tt_list[i_tt1:]):
+            if tt1 != tt2:
+
+                key_tts = f'{tt1}_{tt2}'
+                print(key_tts)
+
+                p_val_array[key_tts] = np.zeros(n_frames)
+                # for i_frame, frame in enumerate(frame_array):
+                i_frame = 0
+                for frame in range(first_frame_post_art, last_frame + 1):
+                    data1 = ds_tt_dict[tt1].activity.where(ds_tt_dict[tt1].frame_array == frame, drop=True).data.ravel()
+                    data2 = ds_tt_dict[tt2].activity.where(ds_tt_dict[tt2].frame_array == frame, drop=True).data.ravel()
+                    # _, p_val = scipy.stats.wilcoxon(data1, data2)
+                    _, p_val = scipy.stats.ttest_ind(data1, data2)
+
+                    p_val_array[key_tts][i_frame] = p_val 
+                    i_frame += 1
+
+    return ds_tt_dict, p_val_array
+
+def no_correction(p_val_dict, alpha=0.05):
+    '''Test signficance vs alpha with no multipl comparison correction'''
+    sign_dict = {}
+
+    for key, p_val_array in p_val_dict.items():
+        sign_dict[key] = p_val_array <= alpha
+
+    return sign_dict
+
+def bonferroni_correction(p_val_dict, alpha=0.05):
+    '''Test signficance with classic Bonferroni correction'''
+    sign_dict = {}
+
+    for key, p_val_array in p_val_dict.items():
+        n_curr = len(p_val_array)
+        alpha_corr = alpha / n_curr 
+        sign_dict[key] = p_val_array <= alpha_corr
+
+    return sign_dict
+
+def holm_bonferroni_correction(p_val_dict, alpha=0.05):
+    '''Test signficance with Holm Bonf correction'''
+    sign_dict = {}
+
+    for key, p_val_array in p_val_dict.items():
+        n_total = len(p_val_array)
+        sign_dict[key] = np.zeros(len(p_val_array), dtype=np.bool)
+        inds_p_low_to_high = np.argsort(p_val_array)
+        assert p_val_array[inds_p_low_to_high[0]] < p_val_array[inds_p_low_to_high[1]]
+
+        for i_ind, ind in enumerate(inds_p_low_to_high):
+            n_curr = n_total - i_ind
+            alpha_corr = alpha / n_curr 
+            if p_val_array[ind] <= alpha_corr:
+                sign_dict[key][ind] = True
+            else:
+                break
+    return sign_dict
+
+def group_sizes_true(array):
+    '''Get sizes of consecutive True values in array'''
+    sizes = np.diff(np.where(np.concatenate(([array[0]], array[:-1] != array[1:], [True])))[0])[::2]  #trick from https://stackoverflow.com/questions/24342047/count-consecutive-occurences-of-values-varying-in-length-in-a-numpy-array
+    return sizes
+
+def group_size_threshold_test(array, size_threshold=1, verbose=0):
+    '''Check if there are any clusters greater than critical cluster size threshold'''
+    sign_array = np.zeros(len(array), dtype=np.bool)
+    sizes_array = group_sizes_true(array=array)  # get cluster sizes
+    sizes_greater_th = sizes_array >= size_threshold  # check if there are any that are greater
+    if verbose > 0:
+        print('sizes greater than th: ', size_threshold, sizes_array, sizes_greater_th)
+    if np.sum(sizes_greater_th) == 0:  # if none greater, return
+        return sign_array
+    else:  # else, find them and label indiv time points True
+        inds_clusters_sign = np.where(sizes_greater_th)[0]  # which clusters are greater
+        inds_changes_array = np.where(np.concatenate(([array[0]], array[:-1] != array[1:], [True])))[0]  # which time points indicate start and end of cluster, from group_sizes_true()
+        for ind_sign_cluster in inds_clusters_sign:  # for each cluster, get start and end and set all time point in between as True
+            start_ind_array = inds_changes_array[int(2 * ind_sign_cluster)]
+            end_ind_array = inds_changes_array[int(2 * ind_sign_cluster + 1)]
+            sign_array[start_ind_array:end_ind_array] = True 
+        return sign_array
+
+def suprathreshold_cluster_size_test(p_val_dict, alpha=0.05, n_perm=1000):
+    '''Test whether a cluster of consecutive signficant p values (wrt uncorrected alpha)
+    is significant via permutation test
+    
+    https://stats.stackexchange.com/questions/196769/multiple-comparison-correction-for-temporally-correlated-tests
+    https://www.fil.ion.ucl.ac.uk/spm/doc/papers/NicholsHolmes.pdf
+    '''
+    sign_dict = {}
+    p_val_dict_bool = no_correction(p_val_dict=p_val_dict)  # get uncorrected signficant values
+    for key, p_val_array in p_val_dict_bool.items():
+        shuffled_largest_cluster = np.zeros(n_perm)
+        n_vals = len(p_val_array)
+        for i_shuffle in range(n_perm):  # perform permutations of array of p values
+            shuffled_inds = np.random.choice(a=n_vals, size=n_vals, replace=False)
+            shuffled_pvals = p_val_array[shuffled_inds]
+            shuffled_largest_cluster[i_shuffle] = np.max(group_sizes_true(array=shuffled_pvals))  # find largest cluster
+        ind_threshold = int(np.round(alpha * n_perm) + 1)
+        shuffled_largest_cluster = np.sort(shuffled_largest_cluster)[::-1]
+        assert shuffled_largest_cluster[0] >= shuffled_largest_cluster[1], print(shuffled_largest_cluster)
+        cluster_size_threshold = shuffled_largest_cluster[ind_threshold]  # critical cluster size
+        sign_dict[key] = group_size_threshold_test(array=p_val_array, size_threshold=cluster_size_threshold)  # test real data vs permutation-determined threshold
+
+    return sign_dict
+
