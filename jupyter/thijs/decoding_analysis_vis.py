@@ -193,6 +193,9 @@ class SimpleSession():
                 self.time_array = getattr(self.SesObj, tt).time
                 self.n_timepoints = len(self.time_array)
                 self.frame_array = np.arange(self.n_timepoints)
+                assumed_artefact_tps = np.array([31, 32, 33, 34, 35, 36])  # I'm just hard-coding this check to be sure
+                self.artefact_bool = np.zeros(self.n_timepoints, dtype='bool')
+                self.artefact_bool[assumed_artefact_tps] = True  # this will be double checked with DF/F data in create_full_dataset()
                 assert self.n_timepoints == 182, 'length time axis not as expected..?'
                 assert self.n_timepoints == self.all_trials[self._key_dict[tt]].shape[1]
             else:
@@ -278,11 +281,27 @@ class SimpleSession():
 
         target_dict = {f'targets_{tt}': ('neuron', self.targeted_cells[tt]) for tt in self.list_tt if tt not in ['sham', 'whisker']}
 
+        ## Double check position of artefact:
+        artefact_data = data_arr.data
+        assert artefact_data.shape[1] == len(data_arr.time)
+        artefact_data = artefact_data[:, self.artefact_bool, :]
+        artefact_data = np.unique(artefact_data)
+        assert len(artefact_data) == 1 and artefact_data[0] == 0  # check that all points labeled as artefact were set to 0
+        artefact_data = data_arr.data
+        artefact_data = artefact_data[:, int(self.artefact_bool[0] - 1), :]
+        artefact_data = np.unique(artefact_data)
+        assert len(artefact_data) > 1 and artefact_data[0].mean() != 0  # check that first artefact tp was labelled correctly
+        artefact_data = data_arr.data
+        artefact_data = artefact_data[:, int(self.artefact_bool[-1] + 1), :]
+        artefact_data = np.unique(artefact_data)
+        assert len(artefact_data) > 1 and artefact_data[0].mean() != 0  # check that last artefact tp was labelled correctly
+        
         data_set = xr.Dataset({**{'activity': data_arr, 
                                   'cell_s1': ('neuron', self.cell_s1['sham']),  # same for all tt anyway
                                   'cell_id': ('neuron', self.cell_id['sham']),
                                   'trial_type': ('trial', tt_arr),
-                                  'frame_array': ('time', self.frame_array)},
+                                  'frame_array': ('time', self.frame_array),
+                                  'artefact_bool': ('time', self.artefact_bool)},
                                **target_dict})
 
         self.full_ds = data_set
@@ -732,6 +751,7 @@ class AllSessions():
                               dim='neuron', join='override')  # join='override' from https://github.com/pydata/xarray/issues/3681
         cc_ds['original_neuron_index'] = cc_ds.activity.neuron  # save original neuron index
         cc_ds['neuron'] = np.arange(cc_ds.activity.neuron.shape[0])  # but make main index uniquely accumulating across sessions
+        
         if 'neuron' in cc_ds.trial_type.dims:
             for i_trial in range(cc_ds.trial.shape[0]):
                 assert len(np.unique(cc_ds.trial_type[:, i_trial].data)) == 1  # ensure all trial types same structure
@@ -740,6 +760,10 @@ class AllSessions():
             for i_time in range(cc_ds.time.shape[0]):
                 assert len(np.unique(cc_ds.frame_array[:, i_time].data)) == 1  # ensure all trial types same structure
             cc_ds = cc_ds.assign(frame_array=cc_ds.frame_array.isel(neuron=0).drop('neuron'))  # is this the best way? probably missing some magic here
+        if 'neuron' in cc_ds.artefact_bool.dims:
+            for i_time in range(cc_ds.time.shape[0]):
+                assert len(np.unique(cc_ds.artefact_bool[:, i_time].data)) == 1  # ensure all trial types same structure
+            cc_ds = cc_ds.assign(artefact_bool=cc_ds.artefact_bool.isel(neuron=0).drop('neuron'))  # is this the best way? probably missing some magic here
             
         assert np.sum(np.isnan(cc_ds.activity)) == 0      
 
@@ -1310,7 +1334,7 @@ def smooth_trace(trace, one_sided_window_size=3, fix_ends=True):
 
 def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
                        blank_ps=True, smooth_mean=True, plot_legend=False,
-                       p_val_dict=None,
+                       p_val_dict=None, first_frame_significance=1,
                        plot_significance=True, test_method='cluster'):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
@@ -1341,7 +1365,7 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
             sign_dict = suprathreshold_cluster_size_test(p_val_dict=p_val_dict)
         elif test_method == 'uncorrected':
             sign_dict = no_correction(p_val_dict=p_val_dict)
-        time_array = ds.time.where(ds.frame_array >= 37, drop=True).data  
+        time_array = ds.time.where(ds.frame_array >= first_frame_significance, drop=True).data  
 
         i_sign_arr = 0
         for key_tts, sign_array in sign_dict.items():
@@ -1374,7 +1398,7 @@ def plot_significance_array(array, ax=None, color_tt=None, time_ax=None, bottom_
         plot_color = colour_tt_dict[color_tt]
 
     assert type(array) == np.ndarray
-    assert array.dtype == 'bool'
+    assert array.dtype == 'bool', (array.dtype, array)
     assert array.ndim == 1
 
     if time_ax is None:
@@ -1390,11 +1414,12 @@ def plot_significance_array(array, ax=None, color_tt=None, time_ax=None, bottom_
         ax.text(s=text_s, x=text_x, y=text_y, color=text_c)
         
 
-def compute_dynamic_pvals(ds, tt_list=['sensory', 'random', 'sham']):
+def compute_dynamic_pvals(ds, tt_list=['sensory', 'random', 'sham'],
+                          first_frame=37):
     frame_array = ds.frame_array.data
-    first_frame_post_art = 37
     last_frame = frame_array[-1]
-    n_frames = last_frame - first_frame_post_art + 1
+    assert first_frame in list(frame_array)
+    n_frames = last_frame - first_frame + 1
     p_val_array = {}  # will contain array of uncorrected p values
     ds_tt_dict = {}
 
@@ -1414,13 +1439,16 @@ def compute_dynamic_pvals(ds, tt_list=['sensory', 'random', 'sham']):
                 p_val_array[key_tts] = np.zeros(n_frames)
                 # for i_frame, frame in enumerate(frame_array):
                 i_frame = 0
-                for frame in range(first_frame_post_art, last_frame + 1):
-                    data1 = ds_tt_dict[tt1].activity.where(ds_tt_dict[tt1].frame_array == frame, drop=True).data.ravel()
-                    data2 = ds_tt_dict[tt2].activity.where(ds_tt_dict[tt2].frame_array == frame, drop=True).data.ravel()
-                    # _, p_val = scipy.stats.wilcoxon(data1, data2)
-                    _, p_val = scipy.stats.ttest_ind(data1, data2)
+                for frame in range(first_frame, last_frame + 1):
+                    if ds.artefact_bool.where(ds.frame_array == frame, drop=True).data[0]:
+                        p_val_array[key_tts][i_frame] = np.nan 
+                    else:
+                        data1 = ds_tt_dict[tt1].activity.where(ds_tt_dict[tt1].frame_array == frame, drop=True).data.ravel()
+                        data2 = ds_tt_dict[tt2].activity.where(ds_tt_dict[tt2].frame_array == frame, drop=True).data.ravel()
+                        # _, p_val = scipy.stats.wilcoxon(data1, data2)
+                        _, p_val = scipy.stats.ttest_ind(data1, data2)
 
-                    p_val_array[key_tts][i_frame] = p_val 
+                        p_val_array[key_tts][i_frame] = p_val 
                     i_frame += 1
 
     return ds_tt_dict, p_val_array
@@ -1452,7 +1480,7 @@ def holm_bonferroni_correction(p_val_dict, alpha=0.05):
     for key, p_val_array in p_val_dict.items():
         n_total = len(p_val_array)
         sign_dict[key] = np.zeros(len(p_val_array), dtype=np.bool)
-        inds_p_low_to_high = np.argsort(p_val_array)
+        inds_p_low_to_high = np.argsort(p_val_array)  # nans go to the end, so don't need to change rest of loop
         assert p_val_array[inds_p_low_to_high[0]] < p_val_array[inds_p_low_to_high[1]]
 
         for i_ind, ind in enumerate(inds_p_low_to_high):
@@ -1487,15 +1515,19 @@ def group_size_threshold_test(array, size_threshold=1, verbose=0):
             sign_array[start_ind_array:end_ind_array] = True 
         return sign_array
 
-def suprathreshold_cluster_size_test(p_val_dict, alpha=0.05, n_perm=1000):
+def suprathreshold_cluster_size_test(p_val_dict, alpha=0.05, n_perm=5000):
     '''Test whether a cluster of consecutive signficant p values (wrt uncorrected alpha)
     is significant via permutation test
     
     https://stats.stackexchange.com/questions/196769/multiple-comparison-correction-for-temporally-correlated-tests
     https://www.fil.ion.ucl.ac.uk/spm/doc/papers/NicholsHolmes.pdf
     '''
-    sign_dict = {}
-    p_val_dict_bool = no_correction(p_val_dict=p_val_dict)  # get uncorrected signficant values
+    ## Extract nan indices, and filter: (exclude nans because they would give spurious False p val bools)
+    isnotnan_inds_dict = {key: ~np.isnan(val) for key, val in p_val_dict.items()}
+    p_val_nonnan_dict = {key: val[isnotnan_inds_dict[key]] for key, val in p_val_dict.items()}
+    sign_dict = {key: np.zeros_like(val, dtype='bool') for key, val in p_val_dict.items()}
+
+    p_val_dict_bool = no_correction(p_val_dict=p_val_nonnan_dict)  # get uncorrected signficant values 
     for key, p_val_array in p_val_dict_bool.items():
         shuffled_largest_cluster = np.zeros(n_perm)
         n_vals = len(p_val_array)
@@ -1503,11 +1535,11 @@ def suprathreshold_cluster_size_test(p_val_dict, alpha=0.05, n_perm=1000):
             shuffled_inds = np.random.choice(a=n_vals, size=n_vals, replace=False)
             shuffled_pvals = p_val_array[shuffled_inds]
             shuffled_largest_cluster[i_shuffle] = np.max(group_sizes_true(array=shuffled_pvals))  # find largest cluster
-        ind_threshold = int(np.round(alpha * n_perm) + 1)
+        ind_threshold = int(np.round(alpha * n_perm)) # see links; it's the a * N + 1 value, so with zero indexing it becomes a * N
         shuffled_largest_cluster = np.sort(shuffled_largest_cluster)[::-1]
         assert shuffled_largest_cluster[0] >= shuffled_largest_cluster[1], print(shuffled_largest_cluster)
         cluster_size_threshold = shuffled_largest_cluster[ind_threshold]  # critical cluster size
-        sign_dict[key] = group_size_threshold_test(array=p_val_array, size_threshold=cluster_size_threshold)  # test real data vs permutation-determined threshold
+        sign_dict[key][isnotnan_inds_dict[key]] = group_size_threshold_test(array=p_val_array, size_threshold=cluster_size_threshold)  # test real data vs permutation-determined threshold
 
     return sign_dict
 
