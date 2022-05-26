@@ -193,7 +193,10 @@ class SimpleSession():
                 self.time_array = getattr(self.SesObj, tt).time
                 self.n_timepoints = len(self.time_array)
                 self.frame_array = np.arange(self.n_timepoints)
-                assumed_artefact_tps = np.array([31, 32, 33, 34, 35, 36])  # I'm just hard-coding this check to be sure
+                if self.sess_type == 'sens':
+                    assumed_artefact_tps = np.array([31, 32, 33, 34, 35, 36])  # I'm just hard-coding this check to be sure
+                elif self.sess_type == 'proj':
+                    assumed_artefact_tps = np.array([31, 32, 33, 34])
                 self.artefact_bool = np.zeros(self.n_timepoints, dtype='bool')
                 self.artefact_bool[assumed_artefact_tps] = True  # this will be double checked with DF/F data in create_full_dataset()
                 assert self.n_timepoints == 182, 'length time axis not as expected..?'
@@ -286,7 +289,7 @@ class SimpleSession():
         assert artefact_data.shape[1] == len(data_arr.time)
         artefact_data = artefact_data[:, self.artefact_bool, :]
         artefact_data = np.unique(artefact_data)
-        assert len(artefact_data) == 1 and artefact_data[0] == 0  # check that all points labeled as artefact were set to 0
+        assert len(artefact_data) == 1 and artefact_data[0] == 0, (artefact_data, data_arr)  # check that all points labeled as artefact were set to 0
         artefact_data = data_arr.data
         artefact_data = artefact_data[:, int(self.artefact_bool[0] - 1), :]
         artefact_data = np.unique(artefact_data)
@@ -1320,8 +1323,8 @@ def plot_distr_poststim_activity(ses, ax=None, plot_hist=False, tt_list=['sensor
     if plot_logscale:
         ax.set_yscale('log')
 
-def smooth_trace(trace, one_sided_window_size=3, fix_ends=True):
-
+def smooth_trace(trace, one_sided_window_size=2, fix_ends=True):
+    trace = copy.deepcopy(trace)
     window_size = int(2 * one_sided_window_size + 1)
     old_trace = copy.deepcopy(trace)
     trace[one_sided_window_size:-one_sided_window_size] = np.convolve(trace, np.ones(window_size), mode='valid') / window_size
@@ -1331,6 +1334,30 @@ def smooth_trace(trace, one_sided_window_size=3, fix_ends=True):
             trace[i_w] = np.mean(old_trace[:(i_w + one_sided_window_size + 1)])
             trace[-(i_w + 1)] = np.mean(old_trace[(-1 * (i_w + one_sided_window_size + 1)):])
     return trace
+
+def smooth_trace_with_artefact(trace, one_sided_window_size=2, fix_ends=True):
+
+    if np.sum(np.isnan(trace)) == 0:
+        return smooth_trace(trace=trace, one_sided_window_size=one_sided_window_size,
+                            fix_ends=fix_ends)
+
+    else:
+        inds_change_nan = np.where(np.diff(np.isnan(trace)))[0]
+        assert len(inds_change_nan) == 2, 'only made for 1 nan period'
+        inds_start_end_nan = inds_change_nan + 1
+        ind_start_nan = inds_start_end_nan[0]
+        ind_end_nan = inds_start_end_nan[1]
+
+        new_trace = np.zeros_like(trace) + np.nan
+        new_trace[:ind_start_nan] = smooth_trace(trace=trace[:ind_start_nan], 
+                                                one_sided_window_size=one_sided_window_size,
+                                                fix_ends=fix_ends)
+        
+        new_trace[ind_end_nan:] = smooth_trace(trace=trace[ind_end_nan:], 
+                                                one_sided_window_size=one_sided_window_size,
+                                                fix_ends=fix_ends)
+        return new_trace
+
 
 def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
                        blank_ps=True, smooth_mean=True, plot_legend=False,
@@ -1346,13 +1373,13 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
             ps_period = np.logical_and(time_ax >= 0, time_ax <= 0.3)
         grand_av[ps_period] = np.nan
         if smooth_mean:
-            plot_av = smooth_trace(grand_av)
+            plot_av = smooth_trace_with_artefact(grand_av)
         else:
             plot_av = grand_av
         total_std = ds.activity.where(ds.trial_type == tt).std(['neuron', 'trial'])
         total_ci = total_std * 1.96 / np.sqrt(len(ds.neuron) * len(ds.trial))
         ax.plot(time_ax, plot_av, label=tt, linewidth=2, color=colour_tt_dict[tt])
-        ax.fill_between(time_ax, grand_av - total_ci, grand_av + total_ci, alpha=0.3, facecolor=colour_tt_dict[tt])
+        ax.fill_between(time_ax, plot_av - total_ci, plot_av + total_ci, alpha=0.3, facecolor=colour_tt_dict[tt])
 
     if plot_significance:
         assert test_method in ['uncorrected', 'bonferroni', 'holm_bonferroni', 'cluster'], f'test method {test_method} not recognised.!'
@@ -1407,7 +1434,7 @@ def plot_significance_array(array, ax=None, color_tt=None, time_ax=None, bottom_
     assert len(time_ax) == len(array)
 
     ax.plot(time_ax, [bottom_sign_bar if x == 1 else np.nan for x in array],
-            linewidth=4, c=plot_color, clip_on=False)
+            linewidth=4, c=plot_color, clip_on=True)
     if text_s is not None and text_x is not None and text_y is not None:
         if text_c is None:
             text_c = plot_color
