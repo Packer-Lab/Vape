@@ -1362,7 +1362,9 @@ def smooth_trace_with_artefact(trace, one_sided_window_size=2, fix_ends=True):
 def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
                        blank_ps=True, smooth_mean=True, plot_legend=False,
                        p_val_dict=None, first_frame_significance=1,
-                       plot_significance=True, test_method='cluster'):
+                       plot_significance=True, test_method='cluster',
+                       bottom_sign_bar=0.005, addition_sign_bar=0.001,
+                       legend_profile=0):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
 
@@ -1378,7 +1380,8 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
             plot_av = grand_av
         total_std = ds.activity.where(ds.trial_type == tt).std(['neuron', 'trial'])
         total_ci = total_std * 1.96 / np.sqrt(len(ds.neuron) * len(ds.trial))
-        ax.plot(time_ax, plot_av, label=tt, linewidth=2, color=colour_tt_dict[tt])
+        ax.plot(time_ax, plot_av, label=(label_tt_dict[tt] if tt != 'sham' or legend_profile == 0 else None), 
+                linewidth=2, color=colour_tt_dict[tt])
         ax.fill_between(time_ax, plot_av - total_ci, plot_av + total_ci, alpha=0.3, facecolor=colour_tt_dict[tt])
 
     if plot_significance:
@@ -1401,12 +1404,15 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
             else:
                 color_bar = None
             plot_significance_array(array=sign_array, color_tt=color_bar, ax=ax, 
-                                    bottom_sign_bar=0.005 + i_sign_arr * 0.001,
+                                    bottom_sign_bar=bottom_sign_bar + i_sign_arr * addition_sign_bar,
                                     time_ax=time_array)
             i_sign_arr += 1
 
     if plot_legend:
-        ax.legend(frameon=False, loc='lower left')
+        if legend_profile == 0:
+            ax.legend(frameon=False, loc='lower left')
+        elif legend_profile == 1:
+            ax.legend(frameon=False, loc='lower left', ncol=2)
     ax.set_xlabel('Time (s)')
     ax.set_ylabel(r"Grand average $\Delta$F/F")
     ax.set_ylim([-0.012, 0.008])
@@ -1431,7 +1437,7 @@ def plot_significance_array(array, ax=None, color_tt=None, time_ax=None, bottom_
     if time_ax is None:
         time_ax = np.arange(len(array))
 
-    assert len(time_ax) == len(array)
+    assert len(time_ax) == len(array), f'len time_ax is {len(time_ax)}, len array is {len(array)}'
 
     ax.plot(time_ax, [bottom_sign_bar if x == 1 else np.nan for x in array],
             linewidth=4, c=plot_color, clip_on=True)
