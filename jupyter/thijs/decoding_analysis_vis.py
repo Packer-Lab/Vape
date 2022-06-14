@@ -1364,9 +1364,17 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
                        p_val_dict=None, first_frame_significance=1,
                        plot_significance=True, test_method='cluster',
                        bottom_sign_bar=0.005, addition_sign_bar=0.001,
-                       legend_profile=0):
+                       legend_profile=0, plot_zero=True):
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    elif type(ax) == list:
+        ## plot tt per ax in list 
+        assert len(ax) == len(tt_list)
+        bool_tt_split = True 
+        assert plot_significance is False, 'fix colours/position of significance array + ax selection + sens/rand array'
+        assert plot_legend is False, 'change ax selection'
+    else:
+        bool_tt_split = False
 
     for i_tt, tt in enumerate(tt_list):
         time_ax = ds.activity.time 
@@ -1380,9 +1388,22 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
             plot_av = grand_av
         total_std = ds.activity.where(ds.trial_type == tt).std(['neuron', 'trial'])
         total_ci = total_std * 1.96 / np.sqrt(len(ds.neuron) * len(ds.trial))
-        ax.plot(time_ax, plot_av, label=(label_tt_dict[tt] if tt != 'sham' or legend_profile == 0 else None), 
+        if bool_tt_split:
+            curr_ax = ax[i_tt]
+        else:
+            curr_ax = ax
+        if plot_zero:
+            curr_ax.plot(time_ax, np.zeros(len(time_ax)), linestyle=':', c='grey')        
+        curr_ax.plot(time_ax, plot_av, label=(label_tt_dict[tt] if tt != 'sham' or legend_profile == 0 else None), 
                 linewidth=2, color=colour_tt_dict[tt])
-        ax.fill_between(time_ax, plot_av - total_ci, plot_av + total_ci, alpha=0.3, facecolor=colour_tt_dict[tt])
+        curr_ax.fill_between(time_ax, plot_av - total_ci, plot_av + total_ci, alpha=0.3, facecolor=colour_tt_dict[tt])
+
+        curr_ax.set_xlabel('Time (s)')
+        curr_ax.set_ylabel(r"Grand average $\Delta$F/F")
+        curr_ax.set_ylim([-0.012, 0.008])
+        curr_ax.set_yticks([-0.01, -0.005, 0, 0.005])
+        despine(curr_ax)
+
 
     if plot_significance:
         assert test_method in ['uncorrected', 'bonferroni', 'holm_bonferroni', 'cluster'], f'test method {test_method} not recognised.!'
@@ -1413,12 +1434,7 @@ def plot_grand_average(ds, ax=None, tt_list=['sham', 'sensory', 'random'],
             ax.legend(frameon=False, loc='lower left')
         elif legend_profile == 1:
             ax.legend(frameon=False, loc='lower left', ncol=2)
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel(r"Grand average $\Delta$F/F")
-    ax.set_ylim([-0.012, 0.008])
-    ax.set_yticks([-0.01, -0.005, 0, 0.005])
-    despine(ax)
-
+    
 def plot_significance_array(array, ax=None, color_tt=None, time_ax=None, bottom_sign_bar=1,
                             text_s=None, text_x=None, text_y=None, text_c=None):
 
