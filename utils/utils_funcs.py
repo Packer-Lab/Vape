@@ -1,6 +1,6 @@
 import numpy as np
 import json
-import tifffile as tf
+# import tifffile as tf
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -154,9 +154,9 @@ def read_fiji(csv_path):
     return np.array(data)
 
 
-def save_fiji(arr):
-    '''saves numpy array in current folder as fiji friendly tiff'''
-    tf.imsave('Vape_array.tiff', arr.astype('int16'))
+# def save_fiji(arr):  # commented out by Thijs for compatibility
+#     '''saves numpy array in current folder as fiji friendly tiff'''
+#     tf.imsave('Vape_array.tiff', arr.astype('int16'))
 
 
 def threshold_detect(signal, threshold):
