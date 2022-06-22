@@ -497,7 +497,7 @@ nft-sdk == 2.2.0.2
 # Vape/utils/run_functions.py: 1
 # Vape/utils/subsets_analysis.py: 1
 # Vape/utils/utils_funcs.py: 1
-numpy == 1.16.2
+numpy == 1.22.0
 
 # Vape/utils/gsheets_importer.py: 6
 openrefine-client == 0.3.8
