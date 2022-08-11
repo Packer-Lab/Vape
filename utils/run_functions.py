@@ -750,7 +750,8 @@ class GetTargets():
         ''' Converts a packerstation path to a qnap path '''
         
         # Path to qnap data folder
-        qnap_data = os.path.expanduser('/home/jrowland/mnt/qnap/Data')
+        # qnap_data = os.path.expanduser('/home/jrowland/mnt/qnap/Data')
+        qnap_data = os.path.expanduser('/mnt/qnap_Root/jrowland/Data')
         
         # Part of the pstation path that is shared with the qnap path
         # Split with the seperator as path.join doesn't like leading
