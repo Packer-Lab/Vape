@@ -1020,8 +1020,20 @@ class interarealAnalysis():
         self._targetSpread()
 
                           
+<<<<<<< HEAD
     def s2pAnalysis(self, s2_borders_path, trial_sig_calc):
         
+=======
+    def s2pAnalysis(self, s2_borders_path, prestim_sec=2, poststim_sec=10, test_sec=0.5, trial_sig_calc='dff'):
+        '''
+        Take Suite2p outputs, collate relevant metadata, process raw data and analyse metrics
+        on individual trials as well as across trial averages
+        
+        Inputs:
+            s2_borders_path - path to .csv files containing coordinates for bisecting line of S1/S2
+            trial_sig_calc  - 'dff' or 'dfsf' method used to calculate significant trial responses
+        '''
+>>>>>>> 82fda885e5891d1626d5b5f68660d1900b8d9890
         if self.n_frames == 0:
             print('______________________________________________________________________')
             print('\nNo s2p data for', self.stim_type, 'in this session')
@@ -1053,9 +1065,15 @@ class interarealAnalysis():
                 self.sta_sig = [] # based on t-test between dff test periods
                 self.sta_sig_nomulti = [] # as above, no multiple comparisons correction
 
+<<<<<<< HEAD
                 self.pre_frames = int(np.ceil(self.fps*2)) # pre-stim period to include in trial
                 self.post_frames = int(np.ceil(self.fps*10)) # post-stim period to include in trial
                 self.test_frames = int(np.ceil(self.fps*0.5)) # test period for stats
+=======
+                self.pre_frames = int(np.ceil(self.fps*prestim_sec)) # pre-stim period to include in trial
+                self.post_frames = int(np.ceil(self.fps*poststim_sec)) # post-stim period to include in trial
+                self.test_frames = int(np.ceil(self.fps*test_sec)) # test period for stats
+>>>>>>> 82fda885e5891d1626d5b5f68660d1900b8d9890
 
                 for plane in range(self.n_planes):
                     

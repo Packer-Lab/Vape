@@ -392,7 +392,17 @@ def manual_correct(run):
         run.spiral_start = run.spiral_start[2:]
 
     if len(run.spiral_start) == len(run.trial_start) - 1:
-        run.spiral_start = np.append(run.spiral_start, np.nan)
+        # run.spiral_start = np.append(run.spiral_start, np.nan)
+        # Go Carful HERE IM NOT 100% SURE
+        run.spiral_start = run.spiral_start[:-1]
+
+    if len(run.spiral_start) == len(run.trial_start) + 1:
+        print('run.spiral_start is shorter than run.trial_start '
+              'by one. This trims it, go very careful of an off-by-one '
+              'error')
+
+        run.spiral_start = run.spiral_start[:-1]
+
 
     elif run.mouse_id == 'RL072' and run_number==20 and\
     len(run.spiral_start) == len(run.trial_start)+1:
@@ -428,7 +438,7 @@ def spiral_tstart(run):
     except ValueError:
         print(run.mouse_id)
         print('x_galvo is length {} trial start is length {}'.
-              format(len(run.spiral_start), len(trial_start)))
+              format(len(run.spiral_start), len(run.trial_start)))
         raise
 
     return run
@@ -583,10 +593,6 @@ class GetTargets():
         self.run = run
         um_per_pixel = 1.365  # Correct-ish at 0.8x, check me
         stim_radius = 15  #  Distance (um) from stim to be considered target
-<<<<<<< HEAD
-=======
-        print(f'Stim radius for targets is {stim_radius}')
->>>>>>> 8ca813dc9a621a3a1b2a656cfdbe79b117638db0
         self.radius_px = stim_radius * um_per_pixel
 
         self.cell_coords = self.get_normalised_coords()
@@ -675,7 +681,11 @@ class GetTargets():
 
             if self.single_plane:
                 # I think you just need to rescale x in the obfov condition. Be careful and check though
-                scale_y = 1
+                # scale_y = 1
+                # scale_y = lambda y: (y * 1024 - (514/2)) / 514
+                scale_y = lambda y: y*2 - 256
+
+                # scale_y = lambda y: y
             else:
                 # I have rescaled by just multiplying coordinates by 2, go careful with this as not 
                 # 100% sure it is correct
@@ -683,7 +693,9 @@ class GetTargets():
                 
             scale_x = 2
             
-            mask = cv2.circle(mask, (int(scale_x*x), int(scale_y*y)) , radius=int(self.radius_px), color=1, thickness=-1)
+            # mask = cv2.circle(mask, (int(scale_x*x), int(scale_y*y)) , radius=int(self.radius_px), color=1, thickness=-1)
+            mask = cv2.circle(mask, (int(scale_x*x), int(scale_y(y))), 
+                              radius=int(self.radius_px), color=1, thickness=-1)
 
         return mask.astype('bool')
 
@@ -737,7 +749,7 @@ class GetTargets():
         ''' Converts a packerstation path to a qnap path '''
         
         # Path to qnap data folder
-        qnap_data = os.path.expanduser('~/mnt/qnap/Data')
+        qnap_data = os.path.expanduser('/home/jrowland/mnt/qnap/Data')
         
         # Part of the pstation path that is shared with the qnap path
         # Split with the seperator as path.join doesn't like leading

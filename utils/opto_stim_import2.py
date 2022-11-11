@@ -144,7 +144,7 @@ class OptoStimBasic():
         #use matthias approximation
         return pade_dprime(self.hit_rate, self.fp_rate)
 
-    
+
     def test_import_and_slice(self, list_):
         '''
         test that import has been done correctly and slice to remove end 
@@ -156,10 +156,10 @@ class OptoStimBasic():
         len_test = lambda x : True if self.n_trials_complete\
                               <= x <= self.n_trials_complete + 1 else False
 
-        assert len_test(len(list_)), 'error importing, list of wrong length'
-
+        if not len_test(len(list_)):
+            warnings.warn('List of wrong length, check if not psychometic')
+    
         return list_[0:self.n_trials_complete]
-
 
 
 class OptoStim1p(OptoStimBasic):

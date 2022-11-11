@@ -9,6 +9,7 @@ import math
 import bisect
 import copy
 import pickle
+from scipy import stats
 
 # global plotting params
 params = {'legend.fontsize': 'x-large',
@@ -873,4 +874,208 @@ def plotResponseAmpSumTrial(obj, trial_bool, cells_bool, ax):
     ax.set_xlabel('trial #')
     ax.set_ylabel('Summed change in dFF')
     ax.set_title(obj.sheet_name + ' mean summed change in dFF per trial')
+<<<<<<< HEAD:jupyter/rob/ia_funcs.py
     ax.legend(loc='upper right')  
+=======
+    ax.legend(loc='upper right')  
+
+    
+def listdirFullpath(directory, string=''):
+    '''Return full path of all files in directory containing specified string
+    
+    Inputs:
+        directory -- path to directory (string)
+        string    -- sequence to be found in file name (string)
+    '''
+    return [os.path.join(directory, file) \
+                for file in os.listdir(directory) \
+                    if string in file]
+
+
+def loadPickle(pickle_path):
+    '''Load the pickled object
+    
+    Inputs:
+        pickle_path -- path to pickled object
+    '''
+    
+    print('Loading pickle:', pickle_path)
+
+    with open(pickle_path, 'rb') as f:
+        obj = pickle.load(f)
+    
+    return obj
+
+
+def makeExpList(ses_obj, stim_types):
+    '''Construct experiment list from experiments in
+    object
+    
+    Inputs:
+        ses_obj -- session object created using interareal_analysis.py
+    '''
+    
+    exp_list = []
+    
+    if ses_obj.photostim_r.n_frames > 0 and 'pr' in stim_types: 
+        exp_list.append(ses_obj.photostim_r)
+    if ses_obj.photostim_s.n_frames > 0 and 'ps' in stim_types: 
+        exp_list.append(ses_obj.photostim_s)
+    if ses_obj.spont.n_frames > 0 and 'none' in stim_types: 
+        exp_list.append(ses_obj.spont)            
+    if ses_obj.whisker_stim.n_frames > 0 and 'w' in stim_types: 
+        exp_list.append(ses_obj.whisker_stim)
+        
+    return exp_list
+    
+    
+def getMaxTrialLength(ses_obj_list):
+    '''Find the maximum trial length for this series of experiments
+    
+    Inputs:
+        obj_list     -- list of session objects made using interareal_analysis.py
+        
+    Outputs:
+        trial_len_max -- maximum trial length from all stim types
+    '''
+    trial_len_max = 0
+    
+    for trial_type in ses_obj_list:
+        trial_len = len(trial_type.time)
+        
+        if trial_len > trial_len_max:
+            trial_len_max = trial_len
+            
+    return trial_len_max
+
+
+def getResponderIdentities(exp_obj, sign_filter, sig='fdr'):
+    '''Get the number of responding cells according to statistical
+    threshold for targets, s1 non-target and s2
+    
+    Inputs:
+        obj           -- experiment object created using interareal_analysis.py
+        sign_filter   -- whether the amplitude of response for each 
+                         cell matches the filter (bool)
+        sig           -- the method of calculating significant responders
+    Ouput:
+        []            -- list of whether cells responded or not
+    '''
+    if sig=='fdr': sig_filter = exp_obj.sta_sig[0]
+    if sig=='nomulti': sig_filter = exp_obj.sta_sig_nomulti[0]
+    if sig=='insig-fdr': sig_filter = ~exp_obj.sta_sig[0]
+    if sig=='insig-nomulti': sig_filter = ~exp_obj.sta_sig_nomulti[0]
+        
+    s1_target_responders = exp_obj.targeted_cells & sig_filter
+    s1_nontarget_responders = exp_obj.cell_s1[0] & ~exp_obj.targeted_cells & sig_filter & sign_filter
+    s2_responders = exp_obj.cell_s2[0] & sig_filter & sign_filter
+    
+    return [s1_target_responders, s1_nontarget_responders, s2_responders]
+
+
+def getResponderTrials(exp_obj, responders):
+    '''Get the mean trials for each cell type
+    
+    Inputs:
+        obj        -- object created using interareal_analysis.py
+        responders -- whether cells were responding (list of bools)
+    '''
+    
+    all_trials = exp_obj.all_trials[0]
+    
+    s1_targ_trials = np.nanmean(all_trials[responders[0]], axis=(0,2)) # mean across cell and trial
+    s1_nt_trials = np.nanmean(all_trials[responders[1]], axis=(0,2))
+    s2_trials = np.nanmean(all_trials[responders[2]], axis=(0,2))
+    
+    return [s1_targ_trials, s1_nt_trials, s2_trials]
+
+
+def fillList(list_, var, i_0=0):
+    '''Fill array from the beginning without providing all indices'''
+    
+    if len(np.shape(var)) > 1 or len(np.shape(list_)) > 1:
+        raise Exception('inputs must be lists')
+    
+    i_n = len(var)
+    
+    if i_n+i_0 > len(list_):
+        raise Exception('list is too long to be inserted')
+        
+    list_[i_0:i_n] = var
+           
+    return list_
+
+
+def filterDfBoolCol(df, true_cols=[], false_cols=[]):
+    '''Filter indices in a pandas dataframe using logical operations
+    on columns with Boolean values
+    
+    Inputs:
+        df         -- dataframe
+        true_cols  -- columns where True should be filtered
+        false_cols -- columns where False should be filtered
+    
+    Outputs:
+        indices of the dataframe where the logical operation is true
+    '''
+    if true_cols: 
+        true_rows = df[true_cols].all(axis='columns')
+    
+    if false_cols:
+        false_rows = (~df[false_cols]).all(axis='columns')
+    
+    if true_cols and false_cols:
+        filtered_df = df[true_rows & false_rows]
+    elif true_cols:
+        filtered_df = df[true_rows]
+    elif false_cols:
+        filtered_df = df[false_rows]
+    
+    return filtered_df.index
+
+
+def savePlot(save_path):
+    '''Save both .png and .svg from a matplotlib plot
+    
+    Inputs:
+        save_path -- path to save plots to
+    '''
+    plt.savefig(save_path + '.png', bbox_inches='tight')
+    plt.savefig(save_path + '.svg', bbox_inches='tight')
+    
+    
+def stat_test_timepoint(df, time_array, col_1='', col_2='', frames_bin=2, th=0.05):
+    '''
+    time array with time in seconds, should be same size as accuracy arrays 
+    use nans to exclude (artefact) periods
+    '''
+    
+    # df with spont, pr, ps in across time array
+    signif_array = np.zeros(len(time_array))
+    n_bins = int(np.floor(np.sum(~np.isnan(time_array)) / frames_bin))  # exclude artefact in test
+    th_bonf = th / n_bins  # perform bonferroni correction for number of tests
+
+    for i_bin in range(n_bins):  # loop through bins
+        start_frame = int(i_bin * frames_bin)
+        end_frame = int((i_bin + 1) * frames_bin)
+        time_min = time_array[start_frame]
+        if end_frame >= len(time_array):
+            time_max = time_array[-1] + 0.1
+            end_frame = len(time_array) 
+        else:
+            time_max = time_array[end_frame]
+        
+        if np.sum(np.isnan(time_array[start_frame:end_frame + 1])) > 0:
+            continue  # skip bins that contains nans [during artefact]
+        else:
+            inds_rows = np.logical_and(df['timepoint'] >= time_min, 
+                                    df['timepoint'] < time_max)
+            sub_df = df[inds_rows]  # select df during this time bin
+
+            stat, pval = stats.wilcoxon(x=sub_df[col_1], y=sub_df[col_2], 
+                                            alternative='two-sided')
+            if pval < th_bonf:
+                signif_array[start_frame:end_frame] = 1  # indicate significance
+
+    return signif_array
+>>>>>>> 82fda885e5891d1626d5b5f68660d1900b8d9890:utils/ia_funcs.py
