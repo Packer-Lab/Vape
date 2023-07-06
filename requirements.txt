@@ -600,7 +600,7 @@ scikit_learn == 0.21.3
 # Vape/utils/interareal_combined_class.py: 16
 # Vape/utils/run_functions.py: 6,9
 # Vape/utils/subsets_analysis.py: 6
-scipy == 1.3.1
+scipy == 1.10.0
 
 # Vape/jupyter/archive/basic_sta_suite2p.ipynb: 13
 # Vape/jupyter/archive/basic_sta_suite2p_targeted_cells.ipynb: 14
